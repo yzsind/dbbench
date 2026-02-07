@@ -18,41 +18,42 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 @Command(name = "dbbench", mixinStandardHelpOptions = true, version = "1.0.0",
-        description = "TPC-C Database Benchmark Tool")
+        description = "NineData DBBench - TPC-C Database Benchmark Tool")
 public class CLIRunner implements Callable<Integer> {
 
-    @Option(names = {"-t", "--type"}, description = "Database type (mysql, postgresql, oracle, sqlserver, db2, dameng, oceanbase, tidb)", defaultValue = "mysql")
-    private String dbType;
-
-    @Option(names = {"--url"}, description = "JDBC URL", defaultValue = "jdbc:mysql://127.0.0.1:3306/tpcc?useSSL=false&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true")
+    // Database connection options
+    @Option(names = {"--jdbcurl"}, required = true,
+            description = "JDBC URL (e.g., jdbc:mysql://host:3306/db, jdbc:postgresql://host:5432/db)")
     private String jdbcUrl;
 
-    @Option(names = {"-u", "--user"}, description = "Database username", defaultValue = "sysbench")
+    @Option(names = {"-u", "--user"}, description = "Database username", defaultValue = "root")
     private String username;
 
-    @Option(names = {"-p", "--password"}, description = "Database password", defaultValue = "sysbench")
+    @Option(names = {"-p", "--password"}, description = "Database password", defaultValue = "")
     private String password;
-
-    @Option(names = {"-w", "--warehouses"}, description = "Number of warehouses", defaultValue = "1")
-    private int warehouses;
-
-    @Option(names = {"-c", "--terminals"}, description = "Number of terminals (concurrent connections)", defaultValue = "5")
-    private int terminals;
-
-    @Option(names = {"-r", "--duration"}, description = "Test duration in seconds", defaultValue = "60")
-    private int duration;
-
-    @Option(names = {"--load-only"}, description = "Only load data, don't run benchmark")
-    private boolean loadOnly;
-
-    @Option(names = {"--skip-load"}, description = "Skip data loading, run benchmark only")
-    private boolean skipLoad;
 
     @Option(names = {"--pool-size"}, description = "Connection pool size", defaultValue = "50")
     private int poolSize;
 
+    // Benchmark options
+    @Option(names = {"-w", "--warehouses"}, description = "Number of warehouses", defaultValue = "1")
+    private int warehouses;
+
+    @Option(names = {"-c", "--terminals"}, description = "Number of terminals (concurrent threads)", defaultValue = "10")
+    private int terminals;
+
+    @Option(names = {"-d", "--duration"}, description = "Test duration in seconds", defaultValue = "60")
+    private int duration;
+
     @Option(names = {"--load-threads"}, description = "Number of parallel threads for data loading", defaultValue = "4")
     private int loadConcurrency;
+
+    // Run mode options
+    @Option(names = {"--load-only"}, description = "Only load data, don't run benchmark")
+    private boolean loadOnly;
+
+    @Option(names = {"--clean"}, description = "Clean existing data before loading")
+    private boolean clean;
 
     public static void run(String[] args) {
         int exitCode = new CommandLine(new CLIRunner()).execute(args);
@@ -62,6 +63,14 @@ public class CLIRunner implements Callable<Integer> {
     @Override
     public Integer call() throws Exception {
         printBanner();
+
+        // Auto-detect database type from JDBC URL
+        String dbType = detectDatabaseType(jdbcUrl);
+        if (dbType == null) {
+            System.err.println("Error: Unable to detect database type from JDBC URL: " + jdbcUrl);
+            System.err.println("Supported formats: jdbc:mysql://, jdbc:postgresql://, jdbc:oracle:, jdbc:sqlserver://, jdbc:db2://, jdbc:dm://, jdbc:oceanbase://, jdbc:tidb://");
+            return 1;
+        }
 
         // Configure database
         DatabaseConfig dbConfig = new DatabaseConfig();
@@ -79,14 +88,20 @@ public class CLIRunner implements Callable<Integer> {
         benchConfig.setLoadConcurrency(loadConcurrency);
 
         System.out.println("Configuration:");
-        System.out.printf("  Database: %s%n", dbType);
-        System.out.printf("  JDBC URL: %s%n", jdbcUrl);
-        System.out.printf("  Warehouses: %d, Terminals: %d, Duration: %ds%n", warehouses, terminals, duration);
-        System.out.printf("  Load Threads: %d, Pool Size: %d%n", loadConcurrency, poolSize);
+        System.out.printf("  Database Type: %s%n", dbType.toUpperCase());
+        System.out.printf("  JDBC URL:      %s%n", jdbcUrl);
+        System.out.printf("  Username:      %s%n", username);
+        System.out.printf("  Pool Size:     %d%n", poolSize);
+        System.out.println();
+        System.out.printf("  Warehouses:    %d%n", warehouses);
+        System.out.printf("  Terminals:     %d%n", terminals);
+        System.out.printf("  Duration:      %ds%n", duration);
+        System.out.printf("  Load Threads:  %d%n", loadConcurrency);
         System.out.println();
 
         MetricsRegistry metricsRegistry = new MetricsRegistry();
         OSMetricsCollector osMetricsCollector = new OSMetricsCollector();
+        osMetricsCollector.init();
         BenchmarkEngine engine = new BenchmarkEngine(dbConfig, benchConfig, metricsRegistry, osMetricsCollector);
 
         try {
@@ -96,8 +111,16 @@ public class CLIRunner implements Callable<Integer> {
             System.out.println("Database connection established.");
             System.out.println();
 
-            // Load data
-            if (!skipLoad) {
+            // Clean data if requested
+            if (clean) {
+                System.out.println("Cleaning existing data...");
+                engine.cleanData();
+                System.out.println("Data cleaned.");
+                System.out.println();
+            }
+
+            // Load data only if --load-only or --clean is specified
+            if (loadOnly || clean) {
                 System.out.println("Loading TPC-C data...");
                 long loadStart = System.currentTimeMillis();
                 engine.loadData(System.out::println);
@@ -150,11 +173,55 @@ public class CLIRunner implements Callable<Integer> {
         }
     }
 
+    /**
+     * Auto-detect database type from JDBC URL
+     */
+    private String detectDatabaseType(String url) {
+        if (url == null) return null;
+        String lowerUrl = url.toLowerCase();
+
+        if (lowerUrl.startsWith("jdbc:mysql://")) {
+            return "mysql";
+        } else if (lowerUrl.startsWith("jdbc:postgresql://")) {
+            return "postgresql";
+        } else if (lowerUrl.startsWith("jdbc:oracle:")) {
+            return "oracle";
+        } else if (lowerUrl.startsWith("jdbc:sqlserver://")) {
+            return "sqlserver";
+        } else if (lowerUrl.startsWith("jdbc:db2://")) {
+            return "db2";
+        } else if (lowerUrl.startsWith("jdbc:dm://")) {
+            return "dameng";
+        } else if (lowerUrl.startsWith("jdbc:oceanbase://")) {
+            return "oceanbase";
+        } else if (lowerUrl.startsWith("jdbc:tidb://")) {
+            return "tidb";
+        }
+        // TiDB and OceanBase often use MySQL protocol
+        if (lowerUrl.contains("tidb") || lowerUrl.contains(":4000/")) {
+            return "tidb";
+        }
+        if (lowerUrl.contains("oceanbase") || lowerUrl.contains(":2881/")) {
+            return "oceanbase";
+        }
+        return null;
+    }
+
     private void printBanner() {
-        System.out.println("╔═══════════════════════════════════════════════════════════╗");
-        System.out.println("║           DBBench - TPC-C Database Benchmark              ║");
-        System.out.println("║                     Version 1.0.0                         ║");
-        System.out.println("╚═══════════════════════════════════════════════════════════╝");
+        System.out.println();
+        System.out.println("  _   _ _            ____        _        ");
+        System.out.println(" | \\ | (_)_ __   ___|  _ \\  __ _| |_ __ _ ");
+        System.out.println(" |  \\| | | '_ \\ / _ \\ | | |/ _` | __/ _` |");
+        System.out.println(" | |\\  | | | | |  __/ |_| | (_| | || (_| |");
+        System.out.println(" |_| \\_|_|_| |_|\\___|____/ \\__,_|\\__\\__,_|");
+        System.out.println();
+        System.out.println("  ____  ____  ____                  _     ");
+        System.out.println(" |  _ \\| __ )| __ )  ___ _ __   ___| |__  ");
+        System.out.println(" | | | |  _ \\|  _ \\ / _ \\ '_ \\ / __| '_ \\ ");
+        System.out.println(" | |_| | |_) | |_) |  __/ | | | (__| | | |");
+        System.out.println(" |____/|____/|____/ \\___|_| |_|\\___|_| |_|");
+        System.out.println();
+        System.out.println("  TPC-C Database Benchmark Tool  v1.0.0");
         System.out.println();
     }
 
