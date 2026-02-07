@@ -1,0 +1,41 @@
+# Compiled class files
+target/
+*.class
+
+# Log files
+*.log
+logs/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+.project
+.classpath
+.settings/
+
+# Maven
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Application
+*.pid
+*.seed
+*.pid.lock
+
+# Test output
+test-output/
+surefire-reports/
+
+# Sensitive files
+application-local.properties
+*.env

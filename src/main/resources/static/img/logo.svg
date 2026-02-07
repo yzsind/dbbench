@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- Database cylinder -->
+  <ellipse cx="22" cy="16" rx="14" ry="5" fill="#00d9ff" opacity="0.9"/>
+  <rect x="8" y="16" width="28" height="28" fill="#0a1628"/>
+  <ellipse cx="22" cy="16" rx="14" ry="5" fill="none" stroke="#00d9ff" stroke-width="2"/>
+  <ellipse cx="22" cy="26" rx="14" ry="5" fill="none" stroke="#00d9ff" stroke-width="2" opacity="0.7"/>
+  <ellipse cx="22" cy="36" rx="14" ry="5" fill="none" stroke="#00d9ff" stroke-width="2" opacity="0.5"/>
+  <ellipse cx="22" cy="44" rx="14" ry="5" fill="none" stroke="#00d9ff" stroke-width="2"/>
+  <line x1="8" y1="16" x2="8" y2="44" stroke="#00d9ff" stroke-width="2"/>
+  <line x1="36" y1="16" x2="36" y2="44" stroke="#00d9ff" stroke-width="2"/>
+
+  <!-- Performance chart / speedometer -->
+  <path d="M 44 52 A 16 16 0 0 1 44 24" fill="none" stroke="#00ff88" stroke-width="3" stroke-linecap="round"/>
+  <path d="M 44 24 A 16 16 0 0 1 56 38" fill="none" stroke="#ffa500" stroke-width="3" stroke-linecap="round"/>
+  <path d="M 56 38 A 16 16 0 0 1 52 48" fill="none" stroke="#ff4757" stroke-width="3" stroke-linecap="round"/>
+
+  <!-- Speedometer needle -->
+  <line x1="48" y1="40" x2="54" y2="32" stroke="#00d9ff" stroke-width="2.5" stroke-linecap="round"/>
+  <circle cx="48" cy="40" r="3" fill="#00d9ff"/>
+
+  <!-- Data flow dots -->
+  <circle cx="22" cy="21" r="1.5" fill="#00ff88">
+    <animate attributeName="opacity" values="1;0.3;1" dur="1.5s" repeatCount="indefinite"/>
+  </circle>
+  <circle cx="22" cy="31" r="1.5" fill="#00ff88">
+    <animate attributeName="opacity" values="0.3;1;0.3" dur="1.5s" repeatCount="indefinite"/>
+  </circle>
+  <circle cx="22" cy="40" r="1.5" fill="#00ff88">
+    <animate attributeName="opacity" values="1;0.3;1" dur="1.5s" repeatCount="indefinite" begin="0.5s"/>
+  </circle>
+</svg>

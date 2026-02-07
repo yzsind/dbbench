@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DBBench - TPC-C Benchmark Dashboard</title>
+    <link rel="icon" type="image/svg+xml" href="img/logo.svg">
+    <script src="js/chart.min.js"></script>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div class="header">
+        <div class="header-left">
+            <img src="img/logo.svg" alt="DBBench Logo" class="header-logo">
+            <div>
+                <h1>NineData DBBench</h1>
+                <p>TPC-C Database Benchmark Tool</p>
+            </div>
+        </div>
+        <div class="header-right">
+            <span><span class="ws-status ws-disconnected" id="wsStatus"></span>Server</span>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- Control Buttons -->
+        <div class="controls">
+            <button class="btn btn-secondary" onclick="openConfigModal()" id="btnConfig">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="3"></circle>
+                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                </svg>
+                Configure
+            </button>
+            <button class="btn btn-secondary" onclick="initEngine()" id="btnInit">Initialize</button>
+            <button class="btn btn-warning" onclick="loadData()" id="btnLoad" disabled>Load Data</button>
+            <button class="btn btn-danger" onclick="cleanData()" id="btnClean" disabled>Clean Data</button>
+            <button class="btn btn-primary" onclick="startBenchmark()" id="btnStart" disabled>Start Benchmark</button>
+            <button class="btn btn-danger" onclick="stopBenchmark()" id="btnStop" disabled>Stop</button>
+            <span class="status status-idle" id="status">IDLE</span>
+        </div>
+
+        <!-- Main Grid -->
+        <div class="grid">
+            <!-- Configuration Card -->
+            <div class="card">
+                <h3>
+                    Configuration
+                    <button class="btn btn-sm btn-secondary" onclick="openConfigModal()">Edit</button>
+                </h3>
+                <div class="config-grid" id="configDisplay">
+                    <div class="config-item"><span class="config-label">Database</span><span class="config-value" id="cfgDbType">-</span></div>
+                    <div class="config-item"><span class="config-label">Pool Size</span><span class="config-value" id="cfgPoolSize">-</span></div>
+                    <div class="config-item"><span class="config-label">Warehouses</span><span class="config-value" id="cfgWarehouses">-</span></div>
+                    <div class="config-item"><span class="config-label">Terminals</span><span class="config-value" id="cfgTerminals">-</span></div>
+                    <div class="config-item"><span class="config-label">Duration</span><span class="config-value" id="cfgDuration">-</span></div>
+                    <div class="config-item"><span class="config-label">Load Threads</span><span class="config-value" id="cfgLoadConcurrency">-</span></div>
+                </div>
+                <div style="margin-top: 10px;">
+                    <span class="config-label">JDBC URL:</span>
+                    <span class="config-value" id="cfgJdbcUrl" style="font-size: 12px; word-break: break-all;">-</span>
+                </div>
+                <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #333;">
+                    <div class="config-label" style="margin-bottom: 8px;">Transaction Mix</div>
+                    <div style="display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px;">
+                        <span>NewOrder: <strong id="cfgMixNewOrder">45%</strong></span>
+                        <span>Payment: <strong id="cfgMixPayment">43%</strong></span>
+                        <span>OrderStatus: <strong id="cfgMixOrderStatus">4%</strong></span>
+                        <span>Delivery: <strong id="cfgMixDelivery">4%</strong></span>
+                        <span>StockLevel: <strong id="cfgMixStockLevel">4%</strong></span>
+                    </div>
+                </div>
+                <!-- Load Progress -->
+                <div class="load-progress-container" id="loadProgressContainer">
+                    <div class="load-progress-text">
+                        <span>Loading Data</span>
+                        <span id="loadProgressPercent">0%</span>
+                    </div>
+                    <div class="progress-bar large">
+                        <div class="progress-fill" id="loadProgressBar" style="width: 0%"></div>
+                    </div>
+                    <div class="load-progress-message" id="loadProgressMessage">Preparing...</div>
+                </div>
+            </div>
+
+            <!-- Performance Summary -->
+            <div class="card">
+                <h3>Performance Summary</h3>
+                <div class="metric">
+                    <span class="metric-label">Throughput (TPS)</span>
+                    <span class="metric-value highlight" id="tps">0.00</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Total Transactions</span>
+                    <span class="metric-value" id="totalTx">0</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Success Rate</span>
+                    <span class="metric-value" id="successRate">0%</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Avg Latency</span>
+                    <span class="metric-value" id="avgLatency">0 ms</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Elapsed Time</span>
+                    <span class="metric-value" id="elapsed">0s</span>
+                </div>
+            </div>
+
+            <!-- System Resources -->
+            <div class="card">
+                <h3>System Resources</h3>
+                <div class="metric">
+                    <span class="metric-label">CPU Usage</span>
+                    <span class="metric-value" id="cpuUsage">0%</span>
+                </div>
+                <div class="progress-bar"><div class="progress-fill" id="cpuBar" style="width: 0%"></div></div>
+                <div class="metric" style="margin-top: 15px;">
+                    <span class="metric-label">Memory Usage</span>
+                    <span class="metric-value" id="memUsage">0%</span>
+                </div>
+                <div class="progress-bar"><div class="progress-fill" id="memBar" style="width: 0%"></div></div>
+                <div class="metric" style="margin-top: 15px;">
+                    <span class="metric-label">Load Average (1m)</span>
+                    <span class="metric-value" id="loadAvg">0.00</span>
+                </div>
+            </div>
+
+            <!-- Database Metrics -->
+            <div class="card">
+                <h3>Database Metrics</h3>
+                <div class="metric">
+                    <span class="metric-label">Active Connections</span>
+                    <span class="metric-value" id="dbConnections">0</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Buffer Pool Hit Ratio</span>
+                    <span class="metric-value" id="bufferHit">0%</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Row Lock Waits</span>
+                    <span class="metric-value" id="lockWaits">0</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Slow Queries</span>
+                    <span class="metric-value" id="slowQueries">0</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- TPS Chart -->
+        <div class="grid">
+            <div class="card card-full">
+                <h3>Throughput（TPS）</h3>
+                <div class="chart-container">
+                    <canvas id="tpsChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- CPU and Network Charts -->
+        <div class="grid grid-2">
+            <div class="card">
+                <h3>CPU Usage</h3>
+                <div class="chart-container">
+                    <canvas id="cpuChart"></canvas>
+                </div>
+            </div>
+            <div class="card">
+                <h3>Network I/O</h3>
+                <div class="chart-container">
+                    <canvas id="networkChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Transaction Breakdown -->
+        <div class="card">
+            <h3>Transaction Breakdown</h3>
+            <table class="table">
+                <thead>
+                    <tr>
+                        <th>Transaction Type</th>
+                        <th>Count</th>
+                        <th>Success</th>
+                        <th>Failed</th>
+                        <th>Success Rate</th>
+                        <th>Avg Latency</th>
+                    </tr>
+                </thead>
+                <tbody id="txTable">
+                    <tr><td colspan="6" style="text-align: center; color: #888;">No data yet</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Activity Log -->
+        <div class="card mt-20">
+            <h3>
+                Activity Log
+                <div>
+                    <button class="btn btn-sm btn-secondary" onclick="openLogViewer()">View All</button>
+                    <button class="btn btn-sm btn-danger" onclick="clearLogs()">Clear</button>
+                </div>
+            </h3>
+            <div class="log" id="log">
+                <div class="log-entry">Ready to start benchmark...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Configuration Modal -->
+    <div class="modal-overlay" id="configModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Benchmark Configuration</h2>
+                <button class="modal-close" onclick="closeModal('configModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <!-- Database Configuration -->
+                <div class="form-section">
+                    <div class="form-section-title">Database Connection</div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="cfgFormDbType">Database Type</label>
+                            <select id="cfgFormDbType">
+                                <option value="mysql">MySQL</option>
+                                <option value="tidb">TiDB</option>
+                                <option value="postgresql">PostgreSQL</option>
+                                <option value="oracle">Oracle</option>
+                                <option value="sqlserver">SQL Server</option>
+                                <option value="db2">DB2</option>
+                                <option value="dameng">Dameng</option>
+                                <option value="oceanbase">OceanBase</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="cfgFormPoolSize">Connection Pool Size</label>
+                            <input type="number" id="cfgFormPoolSize" placeholder="50">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="cfgFormJdbcUrl">JDBC URL</label>
+                        <input type="text" id="cfgFormJdbcUrl" placeholder="jdbc:mysql://127.0.0.1:3306/tpcc?useSSL=false">
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="cfgFormDbUser">Username</label>
+                            <input type="text" id="cfgFormDbUser" placeholder="root">
+                        </div>
+                        <div class="form-group">
+                            <label for="cfgFormDbPass">Password</label>
+                            <input type="password" id="cfgFormDbPass" placeholder="Leave empty to keep current">
+                        </div>
+                    </div>
+                    <!-- Connection Test -->
+                    <div class="form-group">
+                        <button type="button" class="btn btn-secondary" onclick="testConnection()" id="btnTestConnection">
+                            Test Connection
+                        </button>
+                        <span id="connectionTestResult" class="connection-test-result"></span>
+                    </div>
+                </div>
+
+                <!-- Benchmark Configuration -->
+                <div class="form-section">
+                    <div class="form-section-title">Benchmark Settings</div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="cfgFormWarehouses">Warehouses</label>
+                            <input type="number" id="cfgFormWarehouses" min="1" placeholder="10">
+                        </div>
+                        <div class="form-group">
+                            <label for="cfgFormTerminals">Terminals (Threads)</label>
+                            <input type="number" id="cfgFormTerminals" min="1" placeholder="50">
+                        </div>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="cfgFormDuration">Duration (seconds)</label>
+                            <input type="number" id="cfgFormDuration" min="10" placeholder="60">
+                        </div>
+                        <div class="form-group">
+                            <label for="cfgFormLoadConcurrency">Load Concurrency</label>
+                            <input type="number" id="cfgFormLoadConcurrency" min="1" placeholder="4">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                            <input type="checkbox" id="cfgFormThinkTime" style="width: auto;">
+                            Enable Think Time (simulates user delay between transactions)
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Transaction Mix -->
+                <div class="form-section">
+                    <div class="form-section-title">Transaction Mix (must total 100%)</div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="cfgFormMixNewOrder">New Order (%)</label>
+                            <input type="number" id="cfgFormMixNewOrder" min="0" max="100" placeholder="45">
+                        </div>
+                        <div class="form-group">
+                            <label for="cfgFormMixPayment">Payment (%)</label>
+                            <input type="number" id="cfgFormMixPayment" min="0" max="100" placeholder="43">
+                        </div>
+                    </div>
+                    <div class="form-row-3">
+                        <div class="form-group">
+                            <label for="cfgFormMixOrderStatus">Order Status (%)</label>
+                            <input type="number" id="cfgFormMixOrderStatus" min="0" max="100" placeholder="4">
+                        </div>
+                        <div class="form-group">
+                            <label for="cfgFormMixDelivery">Delivery (%)</label>
+                            <input type="number" id="cfgFormMixDelivery" min="0" max="100" placeholder="4">
+                        </div>
+                        <div class="form-group">
+                            <label for="cfgFormMixStockLevel">Stock Level (%)</label>
+                            <input type="number" id="cfgFormMixStockLevel" min="0" max="100" placeholder="4">
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeModal('configModal')">Cancel</button>
+                <button class="btn btn-primary" onclick="saveConfig()">Save Configuration</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Log Viewer Modal -->
+    <div class="modal-overlay" id="logModal">
+        <div class="modal modal-large">
+            <div class="modal-header">
+                <h2>Detailed Logs</h2>
+                <button class="modal-close" onclick="closeModal('logModal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="log-viewer-controls">
+                    <input type="text" id="logFilter" placeholder="Filter logs..." oninput="filterLogs()">
+                    <button class="log-filter-btn active" data-level="all" onclick="setLogLevel(this, 'all')">All</button>
+                    <button class="log-filter-btn" data-level="info" onclick="setLogLevel(this, 'info')">Info</button>
+                    <button class="log-filter-btn" data-level="warn" onclick="setLogLevel(this, 'warn')">Warn</button>
+                    <button class="log-filter-btn" data-level="error" onclick="setLogLevel(this, 'error')">Error</button>
+                </div>
+                <div class="log-viewer" id="logViewerContent">
+                    <div class="log-entry text-muted text-center" style="padding: 20px;">Loading logs...</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-danger" onclick="clearLogs()">Clear All Logs</button>
+                <button class="btn btn-secondary" onclick="closeModal('logModal')">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <script src="js/app.js"></script>
+</body>
+</html>
