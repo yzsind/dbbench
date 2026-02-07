@@ -8,8 +8,7 @@
       "Bash(java -jar:*)",
       "Bash(pkill:*)",
       "Bash(git commit:*)",
-      "Bash(gh repo create:*)",
-      "Bash(git add:*)"
+      "Bash(gh repo create:*)"
     ]
   }
 }
