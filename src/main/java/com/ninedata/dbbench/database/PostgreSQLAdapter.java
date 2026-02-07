@@ -77,6 +77,163 @@ public class PostgreSQLAdapter extends AbstractDatabaseAdapter {
     }
 
     @Override
+    public Map<String, Object> collectHostMetrics() throws SQLException {
+        Map<String, Object> metrics = new HashMap<>();
+        try (Connection conn = getConnection(); Statement stmt = conn.createStatement()) {
+            // PostgreSQL I/O statistics from pg_stat_bgwriter
+            // Note: PostgreSQL 17+ removed buffers_checkpoint and buffers_backend columns
+            try {
+                ResultSet rs = stmt.executeQuery("""
+                    SELECT buffers_clean, buffers_alloc
+                    FROM pg_stat_bgwriter
+                """);
+                if (rs.next()) {
+                    // Each buffer is 8KB by default
+                    long bufferSize = 8192;
+                    long written = rs.getLong("buffers_clean") * bufferSize;
+                    metrics.put("diskWriteBytes", written);
+                    metrics.put("buffersAllocated", rs.getLong("buffers_alloc"));
+                }
+                rs.close();
+            } catch (SQLException e) {
+                log.debug("Could not get bgwriter stats: {}", e.getMessage());
+            }
+
+            // Disk read bytes from pg_stat_database
+            try {
+                ResultSet rs = stmt.executeQuery("""
+                    SELECT blks_read * 8192 as disk_read_bytes
+                    FROM pg_stat_database
+                    WHERE datname = current_database()
+                """);
+                if (rs.next()) {
+                    metrics.put("diskReadBytes", rs.getLong("disk_read_bytes"));
+                }
+                rs.close();
+            } catch (SQLException e) {
+                log.debug("Could not get disk read stats: {}", e.getMessage());
+            }
+
+            // I/O timing if track_io_timing is enabled
+            try {
+                ResultSet rs = stmt.executeQuery("""
+                    SELECT sum(blk_read_time) as read_time_ms,
+                           sum(blk_write_time) as write_time_ms
+                    FROM pg_stat_database
+                    WHERE datname = current_database()
+                """);
+                if (rs.next()) {
+                    metrics.put("diskReadTimeMs", rs.getDouble("read_time_ms"));
+                    metrics.put("diskWriteTimeMs", rs.getDouble("write_time_ms"));
+                }
+                rs.close();
+            } catch (SQLException e) {
+                log.debug("Could not get I/O timing: {}", e.getMessage());
+            }
+
+            // Try to get CPU usage from pg_stat_activity (active queries as proxy)
+            try {
+                ResultSet rs = stmt.executeQuery("""
+                    SELECT
+                        COUNT(*) FILTER (WHERE state = 'active') as active_queries,
+                        COUNT(*) as total_connections,
+                        COUNT(*) FILTER (WHERE wait_event_type IS NOT NULL) as waiting_queries
+                    FROM pg_stat_activity
+                    WHERE backend_type = 'client backend'
+                """);
+                if (rs.next()) {
+                    long activeQueries = rs.getLong("active_queries");
+                    long totalConns = rs.getLong("total_connections");
+                    long waitingQueries = rs.getLong("waiting_queries");
+                    metrics.put("activeQueries", activeQueries);
+                    metrics.put("totalConnections", totalConns);
+                    metrics.put("waitingQueries", waitingQueries);
+
+                    // Estimate CPU usage based on active queries vs max_connections
+                    // This is a rough approximation
+                    if (totalConns > 0) {
+                        double cpuEstimate = Math.min((activeQueries * 100.0) / Math.max(totalConns, 10), 100);
+                        metrics.put("cpuUsage", Math.round(cpuEstimate * 100.0) / 100.0);
+                    }
+                }
+                rs.close();
+            } catch (SQLException e) {
+                log.debug("Could not get activity stats: {}", e.getMessage());
+            }
+
+            // Memory usage - shared_buffers usage
+            try {
+                ResultSet rs = stmt.executeQuery("""
+                    SELECT
+                        setting::bigint * 8192 as shared_buffers_bytes
+                    FROM pg_settings
+                    WHERE name = 'shared_buffers'
+                """);
+                if (rs.next()) {
+                    long sharedBuffers = rs.getLong("shared_buffers_bytes");
+                    metrics.put("sharedBuffersBytes", sharedBuffers);
+                    metrics.put("memoryTotal", sharedBuffers / (1024 * 1024)); // MB
+                }
+                rs.close();
+            } catch (SQLException e) {
+                log.debug("Could not get shared_buffers setting: {}", e.getMessage());
+            }
+
+            // Try to get buffer usage ratio from pg_buffercache (requires extension)
+            try {
+                ResultSet rs = stmt.executeQuery("""
+                    SELECT
+                        count(*) as used_buffers
+                    FROM pg_buffercache
+                    WHERE reldatabase IS NOT NULL
+                """);
+                if (rs.next()) {
+                    long usedBuffers = rs.getLong("used_buffers");
+                    if (metrics.containsKey("sharedBuffersBytes")) {
+                        long totalBuffers = (Long) metrics.get("sharedBuffersBytes") / 8192;
+                        if (totalBuffers > 0) {
+                            double memUsage = (usedBuffers * 100.0) / totalBuffers;
+                            metrics.put("memoryUsage", Math.round(memUsage * 100.0) / 100.0);
+                            metrics.put("memoryUsed", (usedBuffers * 8192) / (1024 * 1024)); // MB
+                        }
+                    }
+                }
+                rs.close();
+            } catch (SQLException e) {
+                // pg_buffercache extension may not be installed, use cache hit ratio as proxy
+                log.debug("pg_buffercache not available, using cache hit ratio as memory proxy: {}", e.getMessage());
+                try {
+                    ResultSet rs = stmt.executeQuery("""
+                        SELECT
+                            blks_hit, blks_read
+                        FROM pg_stat_database
+                        WHERE datname = current_database()
+                    """);
+                    if (rs.next()) {
+                        long hit = rs.getLong("blks_hit");
+                        long read = rs.getLong("blks_read");
+                        if (hit + read > 0) {
+                            // Use cache hit ratio as a proxy for memory utilization
+                            double hitRatio = (hit * 100.0) / (hit + read);
+                            metrics.put("memoryUsage", Math.round(hitRatio * 100.0) / 100.0);
+                            if (metrics.containsKey("memoryTotal")) {
+                                long total = (Long) metrics.get("memoryTotal");
+                                metrics.put("memoryUsed", (long)(total * hitRatio / 100));
+                            }
+                        }
+                    }
+                    rs.close();
+                } catch (SQLException e2) {
+                    log.debug("Could not get cache hit ratio: {}", e2.getMessage());
+                }
+            }
+
+            conn.commit();
+        }
+        return metrics;
+    }
+
+    @Override
     public void dropSchema() throws SQLException {
         String[] tables = {"order_line", "new_order", "oorder", "history", "stock", "item", "customer", "district", "warehouse"};
         try (Connection conn = getConnection(); Statement stmt = conn.createStatement()) {

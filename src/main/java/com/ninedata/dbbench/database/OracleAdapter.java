@@ -1,15 +1,154 @@
 package com.ninedata.dbbench.database;
 
 import com.ninedata.dbbench.config.DatabaseConfig;
+import lombok.extern.slf4j.Slf4j;
 
+import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.util.HashMap;
+import java.util.Map;
+
+@Slf4j
 public class OracleAdapter extends AbstractDatabaseAdapter {
     public OracleAdapter(DatabaseConfig config) { super(config); }
     @Override public String getDatabaseType() { return "Oracle"; }
 
     @Override
+    public boolean supportsLimitSyntax() {
+        return false; // Oracle uses ROWNUM
+    }
+
+    @Override
     protected String getDropTableStatement(String tableName) {
         // Oracle doesn't support IF EXISTS, use plain DROP TABLE
         return "DROP TABLE " + tableName + " CASCADE CONSTRAINTS";
+    }
+
+    @Override
+    public Map<String, Object> collectMetrics() throws SQLException {
+        Map<String, Object> metrics = new HashMap<>();
+        try (Connection conn = getConnection(); Statement stmt = conn.createStatement()) {
+            // Session statistics
+            try {
+                ResultSet rs = stmt.executeQuery(
+                    "SELECT COUNT(*) as active_sessions FROM V$SESSION WHERE STATUS = 'ACTIVE' AND TYPE = 'USER'"
+                );
+                if (rs.next()) {
+                    metrics.put("active_connections", rs.getLong("active_sessions"));
+                }
+                rs.close();
+            } catch (SQLException e) {
+                log.debug("Could not get session stats: {}", e.getMessage());
+            }
+
+            // Buffer cache hit ratio
+            try {
+                ResultSet rs = stmt.executeQuery("""
+                    SELECT (1 - (phy.value / (cur.value + con.value))) * 100 AS hit_ratio
+                    FROM V$SYSSTAT phy, V$SYSSTAT cur, V$SYSSTAT con
+                    WHERE phy.name = 'physical reads'
+                    AND cur.name = 'db block gets'
+                    AND con.name = 'consistent gets'
+                    AND (cur.value + con.value) > 0
+                """);
+                if (rs.next()) {
+                    metrics.put("buffer_pool_hit_ratio", Math.round(rs.getDouble("hit_ratio") * 100.0) / 100.0);
+                }
+                rs.close();
+            } catch (SQLException e) {
+                log.debug("Could not get buffer cache stats: {}", e.getMessage());
+            }
+
+            // Wait statistics
+            try {
+                ResultSet rs = stmt.executeQuery(
+                    "SELECT COUNT(*) as lock_waits FROM V$SESSION WHERE BLOCKING_SESSION IS NOT NULL"
+                );
+                if (rs.next()) {
+                    metrics.put("lock_waits", rs.getLong("lock_waits"));
+                }
+                rs.close();
+            } catch (SQLException e) {
+                log.debug("Could not get lock stats: {}", e.getMessage());
+            }
+
+            conn.commit();
+        }
+        return metrics;
+    }
+
+    @Override
+    public Map<String, Object> collectHostMetrics() throws SQLException {
+        Map<String, Object> metrics = new HashMap<>();
+        try (Connection conn = getConnection(); Statement stmt = conn.createStatement()) {
+            // Oracle V$OSSTAT provides OS-level metrics
+            try {
+                ResultSet rs = stmt.executeQuery("""
+                    SELECT STAT_NAME, VALUE FROM V$OSSTAT
+                    WHERE STAT_NAME IN (
+                        'NUM_CPUS', 'IDLE_TIME', 'BUSY_TIME', 'USER_TIME', 'SYS_TIME',
+                        'PHYSICAL_MEMORY_BYTES', 'FREE_MEMORY_BYTES',
+                        'OS_CPU_WAIT_TIME', 'RSRC_MGR_CPU_WAIT_TIME'
+                    )
+                """);
+                long busyTime = 0, idleTime = 0;
+                while (rs.next()) {
+                    String name = rs.getString("STAT_NAME");
+                    long value = rs.getLong("VALUE");
+                    switch (name) {
+                        case "NUM_CPUS" -> metrics.put("cpuCores", value);
+                        case "BUSY_TIME" -> busyTime = value;
+                        case "IDLE_TIME" -> idleTime = value;
+                        case "PHYSICAL_MEMORY_BYTES" -> metrics.put("memoryTotal", value / (1024 * 1024));
+                        case "FREE_MEMORY_BYTES" -> metrics.put("memoryFree", value / (1024 * 1024));
+                    }
+                }
+                rs.close();
+
+                // Calculate CPU usage
+                if (busyTime + idleTime > 0) {
+                    double cpuUsage = (busyTime * 100.0) / (busyTime + idleTime);
+                    metrics.put("cpuUsage", Math.round(cpuUsage * 100.0) / 100.0);
+                }
+
+                // Calculate memory usage
+                if (metrics.containsKey("memoryTotal") && metrics.containsKey("memoryFree")) {
+                    long total = (Long) metrics.get("memoryTotal");
+                    long free = (Long) metrics.get("memoryFree");
+                    metrics.put("memoryUsed", total - free);
+                    if (total > 0) {
+                        metrics.put("memoryUsage", Math.round(((total - free) * 100.0 / total) * 100.0) / 100.0);
+                    }
+                }
+            } catch (SQLException e) {
+                log.debug("Could not get OS stats from V$OSSTAT: {}", e.getMessage());
+            }
+
+            // I/O statistics
+            try {
+                ResultSet rs = stmt.executeQuery("""
+                    SELECT SUM(PHYRDS) as physical_reads, SUM(PHYWRTS) as physical_writes,
+                           SUM(PHYBLKRD) as blocks_read, SUM(PHYBLKWRT) as blocks_written
+                    FROM V$FILESTAT
+                """);
+                if (rs.next()) {
+                    // Oracle block size is typically 8KB
+                    long blockSize = 8192;
+                    metrics.put("diskReadBytes", rs.getLong("blocks_read") * blockSize);
+                    metrics.put("diskWriteBytes", rs.getLong("blocks_written") * blockSize);
+                    metrics.put("physicalReads", rs.getLong("physical_reads"));
+                    metrics.put("physicalWrites", rs.getLong("physical_writes"));
+                }
+                rs.close();
+            } catch (SQLException e) {
+                log.debug("Could not get I/O stats: {}", e.getMessage());
+            }
+
+            conn.commit();
+        }
+        return metrics;
     }
 
     @Override protected String[] getCreateTableStatements() {

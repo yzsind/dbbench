@@ -25,7 +25,9 @@ public class DeliveryTransaction extends AbstractTransaction {
         for (int d = 1; d <= TPCCUtil.DISTRICTS_PER_WAREHOUSE; d++) {
             // Get oldest undelivered order
             int orderId;
-            try (PreparedStatement ps = conn.prepareStatement("SELECT no_o_id FROM new_order WHERE no_w_id = ? AND no_d_id = ? ORDER BY no_o_id LIMIT 1 FOR UPDATE")) {
+            String sql = buildSelectFirstRowForUpdateQuery(
+                "SELECT no_o_id FROM new_order WHERE no_w_id = ? AND no_d_id = ? ORDER BY no_o_id");
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
                 ps.setInt(1, warehouseId);
                 ps.setInt(2, d);
                 ResultSet rs = ps.executeQuery();

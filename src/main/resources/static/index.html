@@ -111,17 +111,17 @@
             <div class="card">
                 <h3>System Resources</h3>
                 <div class="metric">
-                    <span class="metric-label">CPU Usage</span>
+                    <span class="metric-label">Client CPU Usage</span>
                     <span class="metric-value" id="cpuUsage">0%</span>
                 </div>
                 <div class="progress-bar"><div class="progress-fill" id="cpuBar" style="width: 0%"></div></div>
                 <div class="metric" style="margin-top: 15px;">
-                    <span class="metric-label">Memory Usage</span>
+                    <span class="metric-label">Client Memory Usage</span>
                     <span class="metric-value" id="memUsage">0%</span>
                 </div>
                 <div class="progress-bar"><div class="progress-fill" id="memBar" style="width: 0%"></div></div>
                 <div class="metric" style="margin-top: 15px;">
-                    <span class="metric-label">Load Average (1m)</span>
+                    <span class="metric-label">Client Load Average (1m)</span>
                     <span class="metric-value" id="loadAvg">0.00</span>
                 </div>
             </div>
@@ -148,6 +148,28 @@
             </div>
         </div>
 
+        <!-- Database Host Metrics Charts - CPU, Disk I/O, Connections in one row -->
+        <div class="grid grid-3">
+            <div class="card">
+                <h3>Database CPU Usage</h3>
+                <div class="chart-container">
+                    <canvas id="dbCpuChart"></canvas>
+                </div>
+            </div>
+            <div class="card">
+                <h3>Database Disk I/O</h3>
+                <div class="chart-container">
+                    <canvas id="dbDiskChart"></canvas>
+                </div>
+            </div>
+            <div class="card">
+                <h3>Database Connections & Locks</h3>
+                <div class="chart-container">
+                    <canvas id="dbConnChart"></canvas>
+                </div>
+            </div>
+        </div>
+
         <!-- TPS Chart -->
         <div class="grid">
             <div class="card card-full">
@@ -161,13 +183,13 @@
         <!-- CPU and Network Charts -->
         <div class="grid grid-2">
             <div class="card">
-                <h3>CPU Usage</h3>
+                <h3>Client CPU Usage</h3>
                 <div class="chart-container">
                     <canvas id="cpuChart"></canvas>
                 </div>
             </div>
             <div class="card">
-                <h3>Network I/O</h3>
+                <h3>Client Network I/O</h3>
                 <div class="chart-container">
                     <canvas id="networkChart"></canvas>
                 </div>

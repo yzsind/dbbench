@@ -114,6 +114,64 @@ public class DB2Adapter extends AbstractDatabaseAdapter {
     }
 
     @Override
+    public Map<String, Object> collectHostMetrics() throws SQLException {
+        Map<String, Object> metrics = new HashMap<>();
+        try (Connection conn = getConnection(); Statement stmt = conn.createStatement()) {
+            // DB2 system metrics from ENV_SYS_RESOURCES
+            try {
+                ResultSet rs = stmt.executeQuery("""
+                    SELECT
+                        CPU_TOTAL, CPU_USER, CPU_SYSTEM, CPU_IDLE,
+                        MEMORY_TOTAL, MEMORY_FREE,
+                        CPU_USAGE_TOTAL
+                    FROM SYSIBMADM.ENV_SYS_RESOURCES
+                """);
+                if (rs.next()) {
+                    metrics.put("cpuUsage", Math.round(rs.getDouble("CPU_USAGE_TOTAL") * 100.0) / 100.0);
+                    long memTotal = rs.getLong("MEMORY_TOTAL");
+                    long memFree = rs.getLong("MEMORY_FREE");
+                    metrics.put("memoryTotal", memTotal / 1024); // Convert to MB
+                    metrics.put("memoryFree", memFree / 1024);
+                    metrics.put("memoryUsed", (memTotal - memFree) / 1024);
+                    if (memTotal > 0) {
+                        metrics.put("memoryUsage", Math.round(((memTotal - memFree) * 100.0 / memTotal) * 100.0) / 100.0);
+                    }
+                }
+                rs.close();
+            } catch (SQLException e) {
+                log.debug("Could not get system resources: {}", e.getMessage());
+            }
+
+            // I/O statistics from MON_GET_TABLESPACE
+            try {
+                ResultSet rs = stmt.executeQuery("""
+                    SELECT
+                        SUM(POOL_DATA_P_READS + POOL_INDEX_P_READS + POOL_XDA_P_READS) as physical_reads,
+                        SUM(POOL_DATA_WRITES + POOL_INDEX_WRITES + POOL_XDA_WRITES) as physical_writes
+                    FROM TABLE(MON_GET_TABLESPACE(NULL, -2)) AS T
+                """);
+                if (rs.next()) {
+                    // DB2 page size is typically 4KB-32KB, assume 8KB
+                    long pageSize = 8192;
+                    metrics.put("diskReadBytes", rs.getLong("physical_reads") * pageSize);
+                    metrics.put("diskWriteBytes", rs.getLong("physical_writes") * pageSize);
+                }
+                rs.close();
+            } catch (SQLException e) {
+                log.debug("Could not get I/O stats: {}", e.getMessage());
+            }
+
+            conn.commit();
+        }
+        return metrics;
+    }
+
+    @Override
+    public boolean supportsLimitSyntax() {
+        return false; // DB2 uses FETCH FIRST n ROWS ONLY
+    }
+
+    @Override
     protected String getDropTableStatement(String tableName) {
         // DB2 doesn't support IF EXISTS
         return "DROP TABLE " + tableName;

@@ -8,11 +8,18 @@ let ws = null;
 let tpsChart = null;
 let cpuChart = null;
 let networkChart = null;
+let dbCpuChart = null;
+let dbDiskChart = null;
+let dbConnChart = null;
 const maxDataPoints = 60;
 let currentConfig = null;
 let allLogs = [];
 let statusPollInterval = null;
 let lastStatus = null;
+// For calculating disk I/O rate
+let lastDiskReadBytes = 0;
+let lastDiskWriteBytes = 0;
+let lastDiskTime = Date.now();
 
 // DOM Ready
 document.addEventListener('DOMContentLoaded', () => {
@@ -235,6 +242,155 @@ function initCharts() {
             }
         }
     });
+
+    // Database CPU Chart
+    const dbCpuCtx = document.getElementById('dbCpuChart').getContext('2d');
+    dbCpuChart = new Chart(dbCpuCtx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [{
+                label: 'DB CPU %',
+                data: [],
+                borderColor: '#ff6b6b',
+                backgroundColor: 'rgba(255, 107, 107, 0.1)',
+                fill: true,
+                tension: 0.4,
+                pointRadius: 2,
+                pointHoverRadius: 4
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: { duration: 0 },
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { grid: { color: '#333' }, ticks: { color: '#888', maxTicksLimit: 10 } },
+                y: { grid: { color: '#333' }, ticks: { color: '#888' }, beginAtZero: true, max: 100 }
+            }
+        }
+    });
+
+    // Database Disk I/O Chart
+    const dbDiskCtx = document.getElementById('dbDiskChart').getContext('2d');
+    dbDiskChart = new Chart(dbDiskCtx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [
+                {
+                    label: 'Read',
+                    data: [],
+                    borderColor: '#3498db',
+                    backgroundColor: 'rgba(52, 152, 219, 0.1)',
+                    fill: false,
+                    tension: 0.4,
+                    pointRadius: 2,
+                    pointHoverRadius: 4
+                },
+                {
+                    label: 'Write',
+                    data: [],
+                    borderColor: '#e74c3c',
+                    backgroundColor: 'rgba(231, 76, 60, 0.1)',
+                    fill: false,
+                    tension: 0.4,
+                    pointRadius: 2,
+                    pointHoverRadius: 4
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: { duration: 0 },
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'top',
+                    labels: { color: '#888', boxWidth: 12, padding: 10 }
+                }
+            },
+            scales: {
+                x: { grid: { color: '#333' }, ticks: { color: '#888', maxTicksLimit: 10 } },
+                y: {
+                    grid: { color: '#333' },
+                    ticks: {
+                        color: '#888',
+                        callback: function(value) { return formatBytesShort(value) + '/s'; }
+                    },
+                    beginAtZero: true
+                }
+            }
+        }
+    });
+
+    // Database Connections & Locks Chart
+    const dbConnCtx = document.getElementById('dbConnChart').getContext('2d');
+    dbConnChart = new Chart(dbConnCtx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [
+                {
+                    label: 'Connections',
+                    data: [],
+                    borderColor: '#00d9ff',
+                    backgroundColor: 'rgba(0, 217, 255, 0.1)',
+                    fill: false,
+                    tension: 0.4,
+                    pointRadius: 2,
+                    pointHoverRadius: 4,
+                    yAxisID: 'y'
+                },
+                {
+                    label: 'Lock Waits',
+                    data: [],
+                    borderColor: '#ff4757',
+                    backgroundColor: 'rgba(255, 71, 87, 0.1)',
+                    fill: false,
+                    tension: 0.4,
+                    pointRadius: 2,
+                    pointHoverRadius: 4,
+                    yAxisID: 'y1'
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: { duration: 0 },
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'top',
+                    labels: { color: '#888', boxWidth: 12, padding: 10 }
+                }
+            },
+            scales: {
+                x: { grid: { color: '#333' }, ticks: { color: '#888', maxTicksLimit: 10 } },
+                y: {
+                    type: 'linear',
+                    display: true,
+                    position: 'left',
+                    grid: { color: '#333' },
+                    ticks: { color: '#00d9ff' },
+                    beginAtZero: true,
+                    title: { display: true, text: 'Connections', color: '#00d9ff' }
+                },
+                y1: {
+                    type: 'linear',
+                    display: true,
+                    position: 'right',
+                    grid: { drawOnChartArea: false },
+                    ticks: { color: '#ff4757' },
+                    beginAtZero: true,
+                    title: { display: true, text: 'Lock Waits', color: '#ff4757' }
+                }
+            }
+        }
+    });
 }
 
 // ==================== WebSocket ====================
@@ -378,8 +534,67 @@ function updateMetrics(data) {
         const db = data.database;
         document.getElementById('dbConnections').textContent = db.active_connections || db.activeConnections || 0;
         document.getElementById('bufferHit').textContent = (db.buffer_pool_hit_ratio || db.cache_hit_ratio || 0).toFixed(1) + '%';
-        document.getElementById('lockWaits').textContent = db.row_lock_waits || db.waiting_locks || 0;
+        document.getElementById('lockWaits').textContent = db.row_lock_waits || db.waiting_locks || db.lock_waits || 0;
         document.getElementById('slowQueries').textContent = db.slow_queries || 0;
+
+        // Update database connections & locks chart
+        const now = new Date().toLocaleTimeString();
+        const connections = db.active_connections || db.activeConnections || 0;
+        const lockWaits = db.row_lock_waits || db.waiting_locks || db.lock_waits || 0;
+
+        dbConnChart.data.labels.push(now);
+        dbConnChart.data.datasets[0].data.push(connections);
+        dbConnChart.data.datasets[1].data.push(lockWaits);
+
+        if (dbConnChart.data.labels.length > maxDataPoints) {
+            dbConnChart.data.labels.shift();
+            dbConnChart.data.datasets[0].data.shift();
+            dbConnChart.data.datasets[1].data.shift();
+        }
+        dbConnChart.update();
+    }
+
+    // Database Host Metrics - Update Charts
+    if (data.dbHost) {
+        const host = data.dbHost;
+        const now = new Date().toLocaleTimeString();
+
+        // CPU Chart
+        if (host.cpuUsage !== undefined) {
+            dbCpuChart.data.labels.push(now);
+            dbCpuChart.data.datasets[0].data.push(host.cpuUsage);
+            if (dbCpuChart.data.labels.length > maxDataPoints) {
+                dbCpuChart.data.labels.shift();
+                dbCpuChart.data.datasets[0].data.shift();
+            }
+            dbCpuChart.update();
+        }
+
+        // Disk I/O Chart - Calculate rate (bytes per second)
+        if (host.diskReadBytes !== undefined && host.diskWriteBytes !== undefined) {
+            const currentTime = Date.now();
+            const timeDiff = (currentTime - lastDiskTime) / 1000; // seconds
+
+            if (lastDiskReadBytes > 0 && timeDiff > 0) {
+                const readRate = Math.max(0, (host.diskReadBytes - lastDiskReadBytes) / timeDiff);
+                const writeRate = Math.max(0, (host.diskWriteBytes - lastDiskWriteBytes) / timeDiff);
+
+                dbDiskChart.data.labels.push(now);
+                dbDiskChart.data.datasets[0].data.push(readRate);
+                dbDiskChart.data.datasets[1].data.push(writeRate);
+
+                if (dbDiskChart.data.labels.length > maxDataPoints) {
+                    dbDiskChart.data.labels.shift();
+                    dbDiskChart.data.datasets[0].data.shift();
+                    dbDiskChart.data.datasets[1].data.shift();
+                }
+                dbDiskChart.update();
+            }
+
+            lastDiskReadBytes = host.diskReadBytes;
+            lastDiskWriteBytes = host.diskWriteBytes;
+            lastDiskTime = currentTime;
+        }
     }
 
     if (data.status) {
@@ -735,6 +950,26 @@ async function startBenchmark() {
     tpsChart.data.datasets[0].data = [];
     tpsChart.update();
 
+    // Clear database charts for new run
+    dbCpuChart.data.labels = [];
+    dbCpuChart.data.datasets[0].data = [];
+    dbCpuChart.update();
+
+    dbDiskChart.data.labels = [];
+    dbDiskChart.data.datasets[0].data = [];
+    dbDiskChart.data.datasets[1].data = [];
+    dbDiskChart.update();
+
+    dbConnChart.data.labels = [];
+    dbConnChart.data.datasets[0].data = [];
+    dbConnChart.data.datasets[1].data = [];
+    dbConnChart.update();
+
+    // Reset disk I/O tracking
+    lastDiskReadBytes = 0;
+    lastDiskWriteBytes = 0;
+    lastDiskTime = Date.now();
+
     addLog('Starting benchmark...', 'info');
     const result = await apiCall('start');
     if (result.success) {
@@ -763,20 +998,24 @@ function closeModal(modalId) {
 // ==================== Event Listeners ====================
 
 function setupEventListeners() {
-    // Close modal on overlay click
+    // Close modal on overlay click (except configModal)
     document.querySelectorAll('.modal-overlay').forEach(overlay => {
         overlay.addEventListener('click', (e) => {
-            if (e.target === overlay) {
+            // Don't close configModal when clicking outside
+            if (e.target === overlay && overlay.id !== 'configModal') {
                 overlay.classList.remove('active');
             }
         });
     });
 
-    // Close modal on Escape key
+    // Close modal on Escape key (except configModal)
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
             document.querySelectorAll('.modal-overlay.active').forEach(modal => {
-                modal.classList.remove('active');
+                // Don't close configModal with Escape
+                if (modal.id !== 'configModal') {
+                    modal.classList.remove('active');
+                }
             });
         }
     });

@@ -47,7 +47,8 @@ public class NewOrderTransaction extends AbstractTransaction {
         // Get district info and update next order ID
         double dTax;
         int orderId;
-        try (PreparedStatement ps = conn.prepareStatement("SELECT d_tax, d_next_o_id FROM district WHERE d_w_id = ? AND d_id = ? FOR UPDATE")) {
+        String districtSql = buildSelectForUpdateQuery("SELECT d_tax, d_next_o_id FROM district WHERE d_w_id = ? AND d_id = ?");
+        try (PreparedStatement ps = conn.prepareStatement(districtSql)) {
             ps.setInt(1, warehouseId);
             ps.setInt(2, districtId);
             ResultSet rs = ps.executeQuery();
@@ -110,7 +111,8 @@ public class NewOrderTransaction extends AbstractTransaction {
             // Get and update stock
             int sQuantity;
             String sDistInfo;
-            try (PreparedStatement ps = conn.prepareStatement("SELECT s_quantity, s_dist_" + String.format("%02d", districtId) + ", s_data FROM stock WHERE s_w_id = ? AND s_i_id = ? FOR UPDATE")) {
+            String stockSql = buildSelectForUpdateQuery("SELECT s_quantity, s_dist_" + String.format("%02d", districtId) + ", s_data FROM stock WHERE s_w_id = ? AND s_i_id = ?");
+            try (PreparedStatement ps = conn.prepareStatement(stockSql)) {
                 ps.setInt(1, supplyWIds[i]);
                 ps.setInt(2, itemIds[i]);
                 ResultSet rs = ps.executeQuery();

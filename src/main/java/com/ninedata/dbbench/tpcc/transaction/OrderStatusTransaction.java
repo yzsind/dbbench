@@ -51,7 +51,9 @@ public class OrderStatusTransaction extends AbstractTransaction {
 
         // Get last order
         int orderId;
-        try (PreparedStatement ps = conn.prepareStatement("SELECT o_id, o_entry_d, o_carrier_id FROM oorder WHERE o_w_id = ? AND o_d_id = ? AND o_c_id = ? ORDER BY o_id DESC LIMIT 1")) {
+        String sql = buildSelectFirstRowQuery(
+            "SELECT o_id, o_entry_d, o_carrier_id FROM oorder WHERE o_w_id = ? AND o_d_id = ? AND o_c_id = ? ORDER BY o_id DESC");
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, warehouseId);
             ps.setInt(2, districtId);
             ps.setInt(3, customerId);

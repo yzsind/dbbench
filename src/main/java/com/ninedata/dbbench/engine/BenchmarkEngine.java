@@ -452,6 +452,7 @@ public class BenchmarkEngine {
         try {
             Map<String, Object> dbMetrics = adapter.collectMetrics();
             Map<String, Object> osMetrics = osMetricsCollector.collect();
+            Map<String, Object> hostMetrics = adapter.collectHostMetrics();
             metricsRegistry.takeSnapshot(dbMetrics, osMetrics);
 
             if (metricsCallback != null) {
@@ -459,6 +460,7 @@ public class BenchmarkEngine {
                 allMetrics.put("transaction", metricsRegistry.getCurrentMetrics());
                 allMetrics.put("database", dbMetrics);
                 allMetrics.put("os", osMetrics);
+                allMetrics.put("dbHost", hostMetrics);
                 allMetrics.put("status", status);
                 metricsCallback.accept(allMetrics);
             }

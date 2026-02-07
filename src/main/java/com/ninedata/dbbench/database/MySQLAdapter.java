@@ -73,6 +73,50 @@ public class MySQLAdapter extends AbstractDatabaseAdapter {
     }
 
     @Override
+    public Map<String, Object> collectHostMetrics() throws SQLException {
+        Map<String, Object> metrics = new HashMap<>();
+        try (Connection conn = getConnection(); Statement stmt = conn.createStatement()) {
+            // MySQL doesn't have direct OS metrics, but we can get some I/O stats
+            // from performance_schema if available
+            try {
+                // File I/O statistics
+                ResultSet rs = stmt.executeQuery("""
+                    SELECT SUM(SUM_NUMBER_OF_BYTES_READ) as bytes_read,
+                           SUM(SUM_NUMBER_OF_BYTES_WRITE) as bytes_write
+                    FROM performance_schema.file_summary_by_event_name
+                    WHERE EVENT_NAME LIKE 'wait/io/file/%'
+                """);
+                if (rs.next()) {
+                    metrics.put("diskReadBytes", rs.getLong("bytes_read"));
+                    metrics.put("diskWriteBytes", rs.getLong("bytes_write"));
+                }
+                rs.close();
+            } catch (SQLException e) {
+                log.debug("Could not get file I/O stats: {}", e.getMessage());
+            }
+
+            // Network I/O from performance_schema (if available)
+            try {
+                ResultSet rs = stmt.executeQuery("""
+                    SELECT SUM(SUM_NUMBER_OF_BYTES_READ) as bytes_recv,
+                           SUM(SUM_NUMBER_OF_BYTES_WRITE) as bytes_sent
+                    FROM performance_schema.socket_summary_by_event_name
+                """);
+                if (rs.next()) {
+                    metrics.put("networkRecvBytes", rs.getLong("bytes_recv"));
+                    metrics.put("networkSentBytes", rs.getLong("bytes_sent"));
+                }
+                rs.close();
+            } catch (SQLException e) {
+                log.debug("Could not get network I/O stats: {}", e.getMessage());
+            }
+
+            conn.commit();
+        }
+        return metrics;
+    }
+
+    @Override
     protected String[] getCreateTableStatements() {
         return new String[]{
             """
