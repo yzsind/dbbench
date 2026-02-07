@@ -73,14 +73,23 @@ public abstract class AbstractDatabaseAdapter implements DatabaseAdapter {
         try (Connection conn = getConnection(); Statement stmt = conn.createStatement()) {
             for (String table : tables) {
                 try {
-                    stmt.execute("DROP TABLE IF EXISTS " + table);
+                    stmt.execute(getDropTableStatement(table));
                 } catch (SQLException e) {
-                    log.debug("Table {} does not exist", table);
+                    // Table doesn't exist, ignore
+                    log.debug("Table {} does not exist or cannot be dropped: {}", table, e.getMessage());
                 }
             }
             conn.commit();
             log.info("TPC-C schema dropped");
         }
+    }
+
+    /**
+     * Get the DROP TABLE statement for the specific database.
+     * Override this method for databases that don't support IF EXISTS syntax.
+     */
+    protected String getDropTableStatement(String tableName) {
+        return "DROP TABLE IF EXISTS " + tableName;
     }
 
     @Override

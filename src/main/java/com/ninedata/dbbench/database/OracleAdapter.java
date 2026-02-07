@@ -5,6 +5,13 @@ import com.ninedata.dbbench.config.DatabaseConfig;
 public class OracleAdapter extends AbstractDatabaseAdapter {
     public OracleAdapter(DatabaseConfig config) { super(config); }
     @Override public String getDatabaseType() { return "Oracle"; }
+
+    @Override
+    protected String getDropTableStatement(String tableName) {
+        // Oracle doesn't support IF EXISTS, use plain DROP TABLE
+        return "DROP TABLE " + tableName + " CASCADE CONSTRAINTS";
+    }
+
     @Override protected String[] getCreateTableStatements() {
         return new String[]{
             "CREATE TABLE warehouse (w_id NUMBER NOT NULL, w_name VARCHAR2(10), w_street_1 VARCHAR2(20), w_street_2 VARCHAR2(20), w_city VARCHAR2(20), w_state CHAR(2), w_zip CHAR(9), w_tax NUMBER(4,4), w_ytd NUMBER(12,2), PRIMARY KEY (w_id))",

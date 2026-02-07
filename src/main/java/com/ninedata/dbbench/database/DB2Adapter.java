@@ -114,20 +114,9 @@ public class DB2Adapter extends AbstractDatabaseAdapter {
     }
 
     @Override
-    public void dropSchema() throws SQLException {
-        String[] tables = {"order_line", "new_order", "oorder", "history", "stock", "item", "customer", "district", "warehouse"};
-        try (Connection conn = getConnection(); Statement stmt = conn.createStatement()) {
-            for (String table : tables) {
-                try {
-                    stmt.execute("DROP TABLE " + table);
-                } catch (SQLException e) {
-                    // Table doesn't exist, ignore
-                    log.debug("Table {} does not exist", table);
-                }
-            }
-            conn.commit();
-            log.info("TPC-C schema dropped");
-        }
+    protected String getDropTableStatement(String tableName) {
+        // DB2 doesn't support IF EXISTS
+        return "DROP TABLE " + tableName;
     }
 
     @Override
