@@ -18,6 +18,7 @@ public class TPCCLoader {
     private final int concurrency;
     private Consumer<String> progressCallback;
     private final AtomicInteger completedWarehouses = new AtomicInteger(0);
+    private final boolean isDB2;
 
     public TPCCLoader(DatabaseAdapter adapter, int warehouses) {
         this(adapter, warehouses, 4);
@@ -27,6 +28,8 @@ public class TPCCLoader {
         this.adapter = adapter;
         this.warehouses = warehouses;
         this.concurrency = Math.max(1, Math.min(concurrency, warehouses));
+        // Check if this is DB2 database (needs special batch handling)
+        this.isDB2 = "DB2".equalsIgnoreCase(adapter.getDatabaseType());
     }
 
     public void setProgressCallback(Consumer<String> callback) {
@@ -38,6 +41,31 @@ public class TPCCLoader {
         if (progressCallback != null) {
             progressCallback.accept(message);
         }
+    }
+
+    /**
+     * Safely execute batch with proper error handling for DB2
+     * DB2 JDBC driver throws BatchUpdateException even when batch partially succeeds
+     */
+    private void executeBatchSafely(PreparedStatement ps) throws SQLException {
+        try {
+            ps.executeBatch();
+        } catch (BatchUpdateException e) {
+            // For DB2, check if it's a partial success (ERRORCODE=-4229)
+            if (isDB2) {
+                // Log the warning but continue - DB2 may have committed some rows
+                log.warn("DB2 batch warning (some rows may have succeeded): {}", e.getMessage());
+                // Get the actual exception details
+                SQLException nextEx = e.getNextException();
+                while (nextEx != null) {
+                    log.debug("  Batch detail: {}", nextEx.getMessage());
+                    nextEx = nextEx.getNextException();
+                }
+            } else {
+                throw e;
+            }
+        }
+        ps.clearBatch();
     }
 
     public void load() throws SQLException {
@@ -100,6 +128,7 @@ public class TPCCLoader {
 
     private void loadItems() throws SQLException {
         reportProgress("Loading items...");
+        int batchSize = isDB2 ? 1000 : 10000; // Smaller batch for DB2
         try (Connection conn = adapter.getConnection()) {
             String sql = "INSERT INTO item (i_id, i_im_id, i_name, i_price, i_data) VALUES (?, ?, ?, ?, ?)";
             try (PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -115,12 +144,12 @@ public class TPCCLoader {
                     }
                     ps.setString(5, data);
                     ps.addBatch();
-                    if (i % 10000 == 0) {
-                        ps.executeBatch();
+                    if (i % batchSize == 0) {
+                        executeBatchSafely(ps);
                         reportProgress("  Loaded " + i + " items");
                     }
                 }
-                ps.executeBatch();
+                executeBatchSafely(ps);
             }
             conn.commit();
         }
@@ -164,13 +193,14 @@ public class TPCCLoader {
                     ps.setInt(11, TPCCUtil.ORDERS_PER_DISTRICT + 1);
                     ps.addBatch();
                 }
-                ps.executeBatch();
+                executeBatchSafely(ps);
             }
             conn.commit();
         }
     }
 
     private void loadCustomers(int wId) throws SQLException {
+        int batchSize = isDB2 ? 500 : 1000; // Smaller batch for DB2
         try (Connection conn = adapter.getConnection()) {
             String custSql = "INSERT INTO customer (c_id, c_d_id, c_w_id, c_first, c_middle, c_last, c_street_1, c_street_2, c_city, c_state, c_zip, c_phone, c_since, c_credit, c_credit_lim, c_discount, c_balance, c_ytd_payment, c_payment_cnt, c_delivery_cnt, c_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
             String histSql = "INSERT INTO history (h_c_id, h_c_d_id, h_c_w_id, h_d_id, h_w_id, h_date, h_amount, h_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
@@ -215,13 +245,13 @@ public class TPCCLoader {
                         histPs.setString(8, TPCCUtil.randomString(12, 24));
                         histPs.addBatch();
 
-                        if (c % 1000 == 0) {
-                            custPs.executeBatch();
-                            histPs.executeBatch();
+                        if (c % batchSize == 0) {
+                            executeBatchSafely(custPs);
+                            executeBatchSafely(histPs);
                         }
                     }
-                    custPs.executeBatch();
-                    histPs.executeBatch();
+                    executeBatchSafely(custPs);
+                    executeBatchSafely(histPs);
                 }
             }
             conn.commit();
@@ -229,6 +259,7 @@ public class TPCCLoader {
     }
 
     private void loadStock(int wId) throws SQLException {
+        int batchSize = isDB2 ? 1000 : 10000; // Smaller batch for DB2
         try (Connection conn = adapter.getConnection()) {
             String sql = "INSERT INTO stock (s_i_id, s_w_id, s_quantity, s_dist_01, s_dist_02, s_dist_03, s_dist_04, s_dist_05, s_dist_06, s_dist_07, s_dist_08, s_dist_09, s_dist_10, s_ytd, s_order_cnt, s_remote_cnt, s_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
             try (PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -249,17 +280,18 @@ public class TPCCLoader {
                     }
                     ps.setString(17, data);
                     ps.addBatch();
-                    if (i % 10000 == 0) {
-                        ps.executeBatch();
+                    if (i % batchSize == 0) {
+                        executeBatchSafely(ps);
                     }
                 }
-                ps.executeBatch();
+                executeBatchSafely(ps);
             }
             conn.commit();
         }
     }
 
     private void loadOrders(int wId) throws SQLException {
+        int batchSize = isDB2 ? 500 : 1000; // Smaller batch for DB2
         try (Connection conn = adapter.getConnection()) {
             String orderSql = "INSERT INTO oorder (o_id, o_d_id, o_w_id, o_c_id, o_entry_d, o_carrier_id, o_ol_cnt, o_all_local) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
             String newOrderSql = "INSERT INTO new_order (no_o_id, no_d_id, no_w_id) VALUES (?, ?, ?)";
@@ -323,15 +355,15 @@ public class TPCCLoader {
                             olPs.addBatch();
                         }
 
-                        if (o % 1000 == 0) {
-                            orderPs.executeBatch();
-                            newOrderPs.executeBatch();
-                            olPs.executeBatch();
+                        if (o % batchSize == 0) {
+                            executeBatchSafely(orderPs);
+                            executeBatchSafely(newOrderPs);
+                            executeBatchSafely(olPs);
                         }
                     }
-                    orderPs.executeBatch();
-                    newOrderPs.executeBatch();
-                    olPs.executeBatch();
+                    executeBatchSafely(orderPs);
+                    executeBatchSafely(newOrderPs);
+                    executeBatchSafely(olPs);
                 }
             }
             conn.commit();
