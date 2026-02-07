@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mvn clean package:*)",
+      "Bash(mysql:*)",
+      "Bash(/usr/local/mysql/bin/mysql:*)",
+      "Bash(/opt/homebrew/bin/mysql:*)",
+      "Bash(java -jar:*)",
+      "Bash(pkill:*)",
+      "Bash(git commit:*)",
+      "Bash(gh repo create:*)"
+    ]
+  }
+}

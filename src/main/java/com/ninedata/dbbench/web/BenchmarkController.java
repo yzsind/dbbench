@@ -202,8 +202,10 @@ public class BenchmarkController {
             testAdapter.initialize();
 
             // Try to get a connection and execute a simple query
+            // Use database-specific validation query
+            String validationQuery = getValidationQuery(testConfig.getType());
             try (Connection conn = testAdapter.getConnection()) {
-                conn.createStatement().execute("SELECT 1");
+                conn.createStatement().execute(validationQuery);
             }
 
             long elapsed = System.currentTimeMillis() - startTime;
@@ -245,6 +247,21 @@ public class BenchmarkController {
                 } catch (Exception ignored) {}
             }
         }
+    }
+
+    /**
+     * Get database-specific validation query
+     * Different databases require different syntax for simple validation queries
+     */
+    private String getValidationQuery(String dbType) {
+        if (dbType == null) {
+            return "SELECT 1";
+        }
+        return switch (dbType.toLowerCase()) {
+            case "oracle", "dameng" -> "SELECT 1 FROM DUAL";
+            case "db2" -> "SELECT 1 FROM SYSIBM.SYSDUMMY1";
+            default -> "SELECT 1"; // MySQL, PostgreSQL, SQL Server, TiDB, OceanBase
+        };
     }
 
     @GetMapping("/logs")

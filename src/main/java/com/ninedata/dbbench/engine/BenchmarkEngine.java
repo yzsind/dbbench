@@ -154,12 +154,59 @@ public class BenchmarkEngine {
 
         if (adapter != null) {
             adapter.close();
+            adapter = null;
         }
 
-        adapter = DatabaseFactory.create(dbConfig);
-        adapter.initialize();
-        status = "INITIALIZED";
-        addLog("INFO", "Database connection initialized successfully");
+        try {
+            adapter = DatabaseFactory.create(dbConfig);
+            adapter.initialize();
+            status = "INITIALIZED";
+            addLog("INFO", "Database connection initialized successfully");
+        } catch (Exception e) {
+            adapter = null;
+            status = "ERROR";
+            throw new SQLException("Failed to initialize database connection: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Ensure database connection is initialized
+     */
+    private void ensureInitialized() throws SQLException {
+        if (adapter == null || !isAdapterReady()) {
+            initialize();
+        }
+    }
+
+    /**
+     * Check if adapter is ready (has valid connection pool)
+     */
+    private boolean isAdapterReady() {
+        if (adapter == null) return false;
+        try {
+            // Try to get a connection to verify the pool is working
+            adapter.getConnection().close();
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * Check if TPC-C data has been loaded
+     */
+    private boolean isDataLoaded() {
+        try (var conn = adapter.getConnection();
+             var stmt = conn.createStatement();
+             var rs = stmt.executeQuery("SELECT COUNT(*) FROM warehouse")) {
+            if (rs.next()) {
+                return rs.getInt(1) > 0;
+            }
+        } catch (Exception e) {
+            // Table doesn't exist or other error
+            return false;
+        }
+        return false;
     }
 
     /**
@@ -169,9 +216,8 @@ public class BenchmarkEngine {
         if (loading.get()) {
             throw new IllegalStateException("Data loading already in progress");
         }
-        if (adapter == null) {
-            throw new IllegalStateException("Engine not initialized");
-        }
+
+        ensureInitialized();
 
         loading.set(true);
         status = "LOADING";
@@ -200,13 +246,12 @@ public class BenchmarkEngine {
     /**
      * Asynchronous data loading for Web UI usage
      */
-    public void loadDataAsync() {
+    public void loadDataAsync() throws SQLException {
         if (loading.get()) {
             throw new IllegalStateException("Data loading already in progress");
         }
-        if (adapter == null) {
-            throw new IllegalStateException("Engine not initialized");
-        }
+
+        ensureInitialized();
 
         loading.set(true);
         loadProgress = 0;
@@ -298,9 +343,8 @@ public class BenchmarkEngine {
         if (running.get() || loading.get()) {
             throw new IllegalStateException("Cannot clean data while running or loading");
         }
-        if (adapter == null) {
-            throw new IllegalStateException("Engine not initialized");
-        }
+
+        ensureInitialized();
 
         addLog("INFO", "Cleaning TPC-C data...");
         adapter.dropSchema();
@@ -308,13 +352,17 @@ public class BenchmarkEngine {
         addLog("INFO", "Data cleaned successfully");
     }
 
-    public void start() {
+    public void start() throws SQLException {
         if (running.get()) {
             addLog("WARN", "Benchmark already running");
             return;
         }
-        if (adapter == null) {
-            throw new IllegalStateException("Engine not initialized");
+
+        ensureInitialized();
+
+        // Check if data is loaded
+        if (!isDataLoaded()) {
+            throw new IllegalStateException("No TPC-C data found. Please load data first.");
         }
 
         running.set(true);

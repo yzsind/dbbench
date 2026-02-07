@@ -409,16 +409,12 @@ function updateStatus(status) {
     const isRunning = status === 'RUNNING';
     const isLoading = status === 'LOADING';
     const isStopping = status === 'STOPPING';
-    const canStart = ['LOADED', 'STOPPED', 'INITIALIZED'].includes(status);
-    const canLoad = ['INITIALIZED', 'LOADED', 'STOPPED'].includes(status);
-    const canClean = ['INITIALIZED', 'LOADED', 'STOPPED'].includes(status);
     const canConfig = !isRunning && !isLoading && !isStopping;
 
-    document.getElementById('btnStart').disabled = !canStart || isRunning || isLoading;
+    document.getElementById('btnStart').disabled = isRunning || isLoading;
     document.getElementById('btnStop').disabled = !isRunning;
-    document.getElementById('btnLoad').disabled = !canLoad || isRunning || isLoading;
-    document.getElementById('btnClean').disabled = !canClean || isRunning || isLoading;
-    document.getElementById('btnInit').disabled = isRunning || isLoading;
+    document.getElementById('btnLoad').disabled = isRunning || isLoading;
+    document.getElementById('btnClean').disabled = isRunning || isLoading;
     document.getElementById('btnConfig').disabled = !canConfig;
 
     // Show/hide progress container
@@ -713,29 +709,7 @@ async function apiCall(endpoint, method = 'POST', body = null) {
     }
 }
 
-async function initEngine() {
-    addLog('Initializing database connection...', 'info');
-    const result = await apiCall('init');
-    if (result.success) {
-        showToast('success', 'Initialized', 'Database connection established');
-    }
-}
-
 async function loadData() {
-    // Check if initialized first
-    const statusRes = await fetch('/api/benchmark/status');
-    const statusData = await statusRes.json();
-
-    if (statusData.status === 'IDLE') {
-        addLog('Engine not initialized, initializing first...', 'info');
-        const initResult = await apiCall('init');
-        if (!initResult.success) {
-            addLog('Failed to initialize, cannot load data', 'error');
-            showToast('error', 'Initialization Failed', 'Cannot load data without database connection');
-            return;
-        }
-    }
-
     addLog('Starting data load... this may take several minutes', 'info');
     showToast('info', 'Data Loading', 'Starting data load, this may take several minutes');
     document.getElementById('loadProgressContainer').classList.add('active');
@@ -746,20 +720,6 @@ async function loadData() {
 async function cleanData() {
     if (!confirm('Are you sure you want to clean all test data? This will drop all TPC-C tables.')) {
         return;
-    }
-
-    // Check if initialized first
-    const statusRes = await fetch('/api/benchmark/status');
-    const statusData = await statusRes.json();
-
-    if (statusData.status === 'IDLE') {
-        addLog('Engine not initialized, initializing first...', 'info');
-        const initResult = await apiCall('init');
-        if (!initResult.success) {
-            addLog('Failed to initialize, cannot clean data', 'error');
-            showToast('error', 'Initialization Failed', 'Cannot clean data without database connection');
-            return;
-        }
     }
 
     addLog('Cleaning test data...', 'info');
@@ -827,12 +787,43 @@ function setupEventListeners() {
         logFilter.addEventListener('input', filterLogs);
     }
 
+    // Database type change - update JDBC URL template
+    const dbTypeSelect = document.getElementById('cfgFormDbType');
+    if (dbTypeSelect) {
+        dbTypeSelect.addEventListener('change', onDbTypeChange);
+    }
+
     // Handle page visibility change - refresh data when page becomes visible
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') {
             loadInitialState();
         }
     });
+}
+
+// ==================== JDBC URL Templates ====================
+
+const jdbcUrlTemplates = {
+    mysql: 'jdbc:mysql://127.0.0.1:3306/tpcc?useSSL=false&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true',
+    postgresql: 'jdbc:postgresql://127.0.0.1:5432/tpcc',
+    oracle: 'jdbc:oracle:thin:@127.0.0.1:1521:orcl',
+    sqlserver: 'jdbc:sqlserver://127.0.0.1:1433;databaseName=tpcc;encrypt=false',
+    db2: 'jdbc:db2://127.0.0.1:50000/tpcc',
+    dameng: 'jdbc:dm://127.0.0.1:5236/tpcc',
+    oceanbase: 'jdbc:oceanbase://127.0.0.1:2881/tpcc',
+    tidb: 'jdbc:mysql://127.0.0.1:4000/tpcc?useSSL=false&rewriteBatchedStatements=true'
+};
+
+function onDbTypeChange() {
+    const dbType = document.getElementById('cfgFormDbType').value;
+    const jdbcUrlInput = document.getElementById('cfgFormJdbcUrl');
+
+    if (jdbcUrlTemplates[dbType]) {
+        jdbcUrlInput.value = jdbcUrlTemplates[dbType];
+    }
+
+    // Clear connection test result when type changes
+    document.getElementById('connectionTestResult').innerHTML = '';
 }
 
 // ==================== Utilities ====================
