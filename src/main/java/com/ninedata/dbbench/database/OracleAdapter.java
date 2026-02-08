@@ -17,7 +17,12 @@ public class OracleAdapter extends AbstractDatabaseAdapter {
 
     @Override
     public boolean supportsLimitSyntax() {
-        return false; // Oracle uses ROWNUM
+        return false; // Oracle uses ROWNUM or FETCH FIRST (12c+)
+    }
+
+    @Override
+    public boolean requiresRowIdForLimitForUpdate() {
+        return true; // Oracle 11g requires ROWID-based subquery for SELECT ... FOR UPDATE with LIMIT
     }
 
     @Override
