@@ -18,6 +18,8 @@ public class TPCCLoader {
     private final int concurrency;
     private Consumer<String> progressCallback;
     private final AtomicInteger completedWarehouses = new AtomicInteger(0);
+    private volatile boolean cancelled = false;
+    private ExecutorService executor;
 
     public TPCCLoader(DatabaseAdapter adapter, int warehouses) {
         this(adapter, warehouses, 4);
@@ -33,6 +35,30 @@ public class TPCCLoader {
         this.progressCallback = callback;
     }
 
+    /**
+     * Cancel the data loading process
+     */
+    public void cancel() {
+        cancelled = true;
+        if (executor != null) {
+            executor.shutdownNow();
+        }
+        reportProgress("Data loading cancelled by user");
+    }
+
+    /**
+     * Check if loading has been cancelled
+     */
+    public boolean isCancelled() {
+        return cancelled;
+    }
+
+    private void checkCancelled() throws SQLException {
+        if (cancelled) {
+            throw new SQLException("Data loading cancelled by user");
+        }
+    }
+
     private void reportProgress(String message) {
         log.info(message);
         if (progressCallback != null) {
@@ -41,12 +67,14 @@ public class TPCCLoader {
     }
 
     public void load() throws SQLException {
+        cancelled = false;
         long start = System.currentTimeMillis();
         reportProgress(String.format("Starting TPC-C data load for %d warehouse(s) with %d concurrent threads...",
                 warehouses, concurrency));
 
         // Load items first (shared across all warehouses)
         loadItems();
+        checkCancelled();
 
         // Load warehouses concurrently
         loadWarehousesConcurrently();
@@ -56,7 +84,7 @@ public class TPCCLoader {
     }
 
     private void loadWarehousesConcurrently() throws SQLException {
-        ExecutorService executor = Executors.newFixedThreadPool(concurrency);
+        executor = Executors.newFixedThreadPool(concurrency);
         List<Future<Void>> futures = new ArrayList<>();
         completedWarehouses.set(0);
 
@@ -66,12 +94,17 @@ public class TPCCLoader {
             final int warehouseId = w;
             futures.add(executor.submit(() -> {
                 try {
+                    if (cancelled) return null;
                     loadSingleWarehouse(warehouseId);
-                    int completed = completedWarehouses.incrementAndGet();
-                    reportProgress(String.format("Warehouse %d completed (%d/%d)", warehouseId, completed, warehouses));
+                    if (!cancelled) {
+                        int completed = completedWarehouses.incrementAndGet();
+                        reportProgress(String.format("Warehouse %d completed (%d/%d)", warehouseId, completed, warehouses));
+                    }
                 } catch (SQLException e) {
-                    log.error("Failed to load warehouse {}: {}", warehouseId, e.getMessage());
-                    throw new RuntimeException(e);
+                    if (!cancelled) {
+                        log.error("Failed to load warehouse {}: {}", warehouseId, e.getMessage());
+                        throw new RuntimeException(e);
+                    }
                 }
                 return null;
             }));
@@ -81,12 +114,21 @@ public class TPCCLoader {
         executor.shutdown();
         try {
             for (Future<Void> future : futures) {
+                if (cancelled) break;
                 future.get();
             }
-            executor.awaitTermination(1, TimeUnit.HOURS);
+            if (!cancelled) {
+                executor.awaitTermination(1, TimeUnit.HOURS);
+            }
         } catch (InterruptedException | ExecutionException e) {
-            log.error("Error during concurrent warehouse loading: {}", e.getMessage());
-            throw new SQLException("Failed to load warehouses concurrently", e);
+            if (!cancelled) {
+                log.error("Error during concurrent warehouse loading: {}", e.getMessage());
+                throw new SQLException("Failed to load warehouses concurrently", e);
+            }
+        }
+
+        if (cancelled) {
+            throw new SQLException("Data loading cancelled by user");
         }
     }
 
@@ -104,6 +146,10 @@ public class TPCCLoader {
             String sql = "INSERT INTO item (i_id, i_im_id, i_name, i_price, i_data) VALUES (?, ?, ?, ?, ?)";
             try (PreparedStatement ps = conn.prepareStatement(sql)) {
                 for (int i = 1; i <= TPCCUtil.ITEMS; i++) {
+                    if (cancelled) {
+                        conn.rollback();
+                        throw new SQLException("Data loading cancelled by user");
+                    }
                     ps.setInt(1, i);
                     ps.setInt(2, TPCCUtil.randomInt(1, 10000));
                     ps.setString(3, TPCCUtil.randomString(14, 24));

@@ -180,6 +180,11 @@ body {
     color: #ff4757;
 }
 
+.status-cancelled {
+    background: rgba(255, 165, 0, 0.2);
+    color: #ffa500;
+}
+
 @keyframes pulse {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.7; }

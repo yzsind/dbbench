@@ -67,6 +67,24 @@ public class BenchmarkController {
         return ResponseEntity.ok(response);
     }
 
+    @PostMapping("/load/cancel")
+    public ResponseEntity<Map<String, Object>> cancelLoad() {
+        Map<String, Object> response = new LinkedHashMap<>();
+        try {
+            engine.cancelLoad();
+            response.put("success", true);
+            response.put("message", "Data loading cancellation requested");
+            response.put("status", engine.getStatus());
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("Failed to cancel data loading", e);
+            response.put("success", false);
+            response.put("error", e.getMessage());
+            response.put("status", engine.getStatus());
+            return ResponseEntity.badRequest().body(response);
+        }
+    }
+
     @PostMapping("/clean")
     public ResponseEntity<Map<String, Object>> cleanData() {
         Map<String, Object> response = new LinkedHashMap<>();

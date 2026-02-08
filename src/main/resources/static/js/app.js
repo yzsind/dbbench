@@ -636,7 +636,8 @@ function updateStatus(status) {
     const progressContainer = document.getElementById('loadProgressContainer');
     if (isLoading) {
         progressContainer.classList.add('active');
-    } else if (status === 'LOADED' || status === 'ERROR' || status === 'INITIALIZED') {
+        document.getElementById('btnCancelLoad').disabled = false;
+    } else if (status === 'LOADED' || status === 'ERROR' || status === 'INITIALIZED' || status === 'CANCELLED') {
         // Hide after a delay
         setTimeout(() => {
             const currentStatus = document.getElementById('status').textContent;
@@ -928,8 +929,22 @@ async function loadData() {
     addLog('Starting data load... this may take several minutes', 'info');
     showToast('info', 'Data Loading', 'Starting data load, this may take several minutes');
     document.getElementById('loadProgressContainer').classList.add('active');
+    document.getElementById('btnCancelLoad').disabled = false;
     updateLoadProgress(0, 'Starting...');
     await apiCall('load');
+}
+
+async function cancelLoad() {
+    if (!confirm('Are you sure you want to cancel data loading? Partial data may remain in the database.')) {
+        return;
+    }
+
+    addLog('Cancelling data load...', 'warn');
+    document.getElementById('btnCancelLoad').disabled = true;
+    const result = await apiCall('load/cancel');
+    if (result.success) {
+        showToast('warning', 'Cancelling', 'Data loading is being cancelled...');
+    }
 }
 
 async function cleanData() {
@@ -1187,6 +1202,9 @@ function handleStatusChange(oldStatus, newStatus) {
     // Handle specific status transitions
     if (oldStatus === 'LOADING' && newStatus === 'LOADED') {
         showToast('success', 'Data Loaded', 'TPC-C data has been loaded successfully');
+        document.getElementById('loadProgressContainer').classList.remove('active');
+    } else if (oldStatus === 'LOADING' && newStatus === 'CANCELLED') {
+        showToast('warning', 'Load Cancelled', 'Data loading was cancelled by user');
         document.getElementById('loadProgressContainer').classList.remove('active');
     } else if (oldStatus === 'LOADING' && newStatus === 'ERROR') {
         showToast('error', 'Load Failed', 'Data loading failed, check logs for details');

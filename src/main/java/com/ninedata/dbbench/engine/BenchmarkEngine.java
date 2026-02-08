@@ -48,6 +48,7 @@ public class BenchmarkEngine {
     private volatile int loadProgress = 0;
     @Getter
     private volatile String loadMessage = "";
+    private volatile TPCCLoader currentLoader = null;
 
     public BenchmarkEngine(DatabaseConfig dbConfig, BenchmarkConfig benchConfig,
                            MetricsRegistry metricsRegistry, OSMetricsCollector osMetricsCollector) {
@@ -230,8 +231,10 @@ public class BenchmarkEngine {
             adapter.createSchema();
 
             TPCCLoader loader = new TPCCLoader(adapter, benchConfig.getWarehouses(), benchConfig.getLoadConcurrency());
+            currentLoader = loader;
             loader.setProgressCallback(progressCallback);
             loader.load();
+            currentLoader = null;
 
             status = "LOADED";
             progressCallback.accept("Data load completed successfully");
@@ -271,6 +274,7 @@ public class BenchmarkEngine {
                 addLog("INFO", "Schema created successfully");
 
                 TPCCLoader loader = new TPCCLoader(adapter, benchConfig.getWarehouses(), benchConfig.getLoadConcurrency());
+                currentLoader = loader;
                 loader.setProgressCallback(msg -> {
                     addLog("INFO", msg);
                     // Parse progress from message
@@ -294,6 +298,7 @@ public class BenchmarkEngine {
                     }
                 });
                 loader.load();
+                currentLoader = null;
 
                 broadcastLoadProgress(100, "Data load completed");
                 status = "LOADED";
@@ -302,16 +307,38 @@ public class BenchmarkEngine {
                 // Broadcast final status change
                 broadcastStatusChange("LOADED");
             } catch (Exception e) {
-                status = "ERROR";
-                addLog("ERROR", "Data load failed: " + e.getMessage());
-                broadcastLoadProgress(-1, "Error: " + e.getMessage());
-
-                // Broadcast error status
-                broadcastStatusChange("ERROR");
+                currentLoader = null;
+                // Check if it was cancelled
+                if (e.getMessage() != null && e.getMessage().contains("cancelled")) {
+                    status = "CANCELLED";
+                    addLog("WARN", "Data load cancelled by user");
+                    broadcastLoadProgress(-1, "Cancelled by user");
+                    broadcastStatusChange("CANCELLED");
+                } else {
+                    status = "ERROR";
+                    addLog("ERROR", "Data load failed: " + e.getMessage());
+                    broadcastLoadProgress(-1, "Error: " + e.getMessage());
+                    broadcastStatusChange("ERROR");
+                }
             } finally {
                 loading.set(false);
+                currentLoader = null;
             }
         });
+    }
+
+    /**
+     * Cancel the current data loading process
+     */
+    public void cancelLoad() {
+        if (!loading.get()) {
+            throw new IllegalStateException("No data loading in progress");
+        }
+
+        addLog("INFO", "Cancelling data load...");
+        if (currentLoader != null) {
+            currentLoader.cancel();
+        }
     }
 
     private void broadcastStatusChange(String newStatus) {
@@ -368,6 +395,9 @@ public class BenchmarkEngine {
         running.set(true);
         status = "RUNNING";
         metricsRegistry.reset();
+
+        // Set error callback for transactions
+        AbstractTransaction.setErrorCallback(this::addLog);
 
         int terminals = benchConfig.getTerminals();
         executorService = Executors.newFixedThreadPool(terminals);
