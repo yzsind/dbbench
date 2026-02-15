@@ -68,6 +68,23 @@ public abstract class AbstractDatabaseAdapter implements DatabaseAdapter {
     }
 
     @Override
+    public void createIndexes() throws SQLException {
+        String[] indexStatements = getCreateIndexStatements();
+        if (indexStatements.length == 0) return;
+        try (Connection conn = getConnection(); Statement stmt = conn.createStatement()) {
+            for (String sql : indexStatements) {
+                try {
+                    stmt.execute(sql);
+                } catch (SQLException e) {
+                    log.debug("Index creation skipped (may already exist): {}", e.getMessage());
+                }
+            }
+            conn.commit();
+            log.info("TPC-C indexes created successfully");
+        }
+    }
+
+    @Override
     public void dropSchema() throws SQLException {
         String[] tables = {"order_line", "new_order", "oorder", "history", "stock", "item", "customer", "district", "warehouse"};
         try (Connection conn = getConnection(); Statement stmt = conn.createStatement()) {
@@ -98,4 +115,8 @@ public abstract class AbstractDatabaseAdapter implements DatabaseAdapter {
     }
 
     protected abstract String[] getCreateTableStatements();
+
+    protected String[] getCreateIndexStatements() {
+        return new String[0];
+    }
 }

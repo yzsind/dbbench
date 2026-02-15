@@ -285,6 +285,9 @@ public class BenchmarkEngine {
             loader.load();
             currentLoader = null;
 
+            progressCallback.accept("Creating indexes...");
+            adapter.createIndexes();
+
             status = "LOADED";
             progressCallback.accept("Data load completed successfully");
         } catch (Exception e) {
@@ -348,6 +351,10 @@ public class BenchmarkEngine {
                 });
                 loader.load();
                 currentLoader = null;
+
+                broadcastLoadProgress(95, "Creating indexes...");
+                addLog("INFO", "Creating indexes...");
+                adapter.createIndexes();
 
                 broadcastLoadProgress(100, "Data load completed");
                 status = "LOADED";

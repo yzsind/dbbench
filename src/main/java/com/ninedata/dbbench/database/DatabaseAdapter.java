@@ -10,6 +10,7 @@ public interface DatabaseAdapter {
     Connection getConnection() throws SQLException;
     void close();
     void createSchema() throws SQLException;
+    default void createIndexes() throws SQLException {}
     void dropSchema() throws SQLException;
     Map<String, Object> collectMetrics() throws SQLException;
     String getDatabaseType();

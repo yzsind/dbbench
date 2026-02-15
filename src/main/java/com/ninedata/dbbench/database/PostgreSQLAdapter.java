@@ -308,7 +308,6 @@ public class PostgreSQLAdapter extends AbstractDatabaseAdapter {
                 PRIMARY KEY (c_w_id, c_d_id, c_id)
             )
             """,
-            "CREATE INDEX IF NOT EXISTS idx_customer_name ON customer (c_w_id, c_d_id, c_last, c_first)",
             """
             CREATE TABLE IF NOT EXISTS item (
                 i_id INT NOT NULL,
@@ -366,7 +365,6 @@ public class PostgreSQLAdapter extends AbstractDatabaseAdapter {
                 PRIMARY KEY (o_w_id, o_d_id, o_id)
             )
             """,
-            "CREATE INDEX IF NOT EXISTS idx_order_customer ON oorder (o_w_id, o_d_id, o_c_id, o_id)",
             """
             CREATE TABLE IF NOT EXISTS new_order (
                 no_o_id INT NOT NULL,
@@ -390,6 +388,14 @@ public class PostgreSQLAdapter extends AbstractDatabaseAdapter {
                 PRIMARY KEY (ol_w_id, ol_d_id, ol_o_id, ol_number)
             )
             """
+        };
+    }
+
+    @Override
+    protected String[] getCreateIndexStatements() {
+        return new String[]{
+            "CREATE INDEX IF NOT EXISTS idx_customer_name ON customer (c_w_id, c_d_id, c_last, c_first)",
+            "CREATE INDEX IF NOT EXISTS idx_order_customer ON oorder (o_w_id, o_d_id, o_c_id, o_id)"
         };
     }
 }

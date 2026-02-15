@@ -236,7 +236,6 @@ public class DB2Adapter extends AbstractDatabaseAdapter {
                 PRIMARY KEY (c_w_id, c_d_id, c_id)
             )
             """,
-            "CREATE INDEX idx_customer_name ON customer (c_w_id, c_d_id, c_last, c_first)",
             """
             CREATE TABLE item (
                 i_id INT NOT NULL,
@@ -294,7 +293,6 @@ public class DB2Adapter extends AbstractDatabaseAdapter {
                 PRIMARY KEY (o_w_id, o_d_id, o_id)
             )
             """,
-            "CREATE INDEX idx_order_customer ON oorder (o_w_id, o_d_id, o_c_id, o_id)",
             """
             CREATE TABLE new_order (
                 no_o_id INT NOT NULL,
@@ -318,6 +316,14 @@ public class DB2Adapter extends AbstractDatabaseAdapter {
                 PRIMARY KEY (ol_w_id, ol_d_id, ol_o_id, ol_number)
             )
             """
+        };
+    }
+
+    @Override
+    protected String[] getCreateIndexStatements() {
+        return new String[]{
+            "CREATE INDEX idx_customer_name ON customer (c_w_id, c_d_id, c_last, c_first)",
+            "CREATE INDEX idx_order_customer ON oorder (o_w_id, o_d_id, o_c_id, o_id)"
         };
     }
 }

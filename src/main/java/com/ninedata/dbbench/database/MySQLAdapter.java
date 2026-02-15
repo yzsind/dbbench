@@ -172,8 +172,7 @@ public class MySQLAdapter extends AbstractDatabaseAdapter {
                 c_payment_cnt INT,
                 c_delivery_cnt INT,
                 c_data VARCHAR(500),
-                PRIMARY KEY (c_w_id, c_d_id, c_id),
-                INDEX idx_customer_name (c_w_id, c_d_id, c_last, c_first)
+                PRIMARY KEY (c_w_id, c_d_id, c_id)
             ) ENGINE=InnoDB
             """,
             """
@@ -230,8 +229,7 @@ public class MySQLAdapter extends AbstractDatabaseAdapter {
                 o_carrier_id INT,
                 o_ol_cnt INT,
                 o_all_local INT,
-                PRIMARY KEY (o_w_id, o_d_id, o_id),
-                INDEX idx_order_customer (o_w_id, o_d_id, o_c_id, o_id)
+                PRIMARY KEY (o_w_id, o_d_id, o_id)
             ) ENGINE=InnoDB
             """,
             """
@@ -257,6 +255,14 @@ public class MySQLAdapter extends AbstractDatabaseAdapter {
                 PRIMARY KEY (ol_w_id, ol_d_id, ol_o_id, ol_number)
             ) ENGINE=InnoDB
             """
+        };
+    }
+
+    @Override
+    protected String[] getCreateIndexStatements() {
+        return new String[]{
+            "CREATE INDEX idx_customer_name ON customer (c_w_id, c_d_id, c_last, c_first)",
+            "CREATE INDEX idx_order_customer ON oorder (o_w_id, o_d_id, o_c_id, o_id)"
         };
     }
 }

@@ -1,6 +1,6 @@
 package com.ninedata.dbbench.tpcc;
 
-import java.util.Random;
+import java.util.concurrent.ThreadLocalRandom;
 
 public class TPCCUtil {
     public static final int ITEMS = 100000;
@@ -12,46 +12,49 @@ public class TPCCUtil {
         "BAR", "OUGHT", "ABLE", "PRI", "PRES", "ESE", "ANTI", "CALLY", "ATION", "EING"
     };
 
-    private static final Random random = new Random();
-
     public static String generateLastName(int num) {
         return SYLLABLES[num / 100] + SYLLABLES[(num / 10) % 10] + SYLLABLES[num % 10];
     }
 
     public static int NURand(int A, int x, int y) {
+        ThreadLocalRandom rnd = ThreadLocalRandom.current();
         int C;
         switch (A) {
-            case 255 -> C = random.nextInt(256);
-            case 1023 -> C = random.nextInt(1024);
-            case 8191 -> C = random.nextInt(8192);
+            case 255 -> C = rnd.nextInt(256);
+            case 1023 -> C = rnd.nextInt(1024);
+            case 8191 -> C = rnd.nextInt(8192);
             default -> C = 0;
         }
-        return (((random.nextInt(A + 1) | (random.nextInt(y - x + 1) + x)) + C) % (y - x + 1)) + x;
+        return (((rnd.nextInt(A + 1) | (rnd.nextInt(y - x + 1) + x)) + C) % (y - x + 1)) + x;
     }
 
     public static String randomString(int minLen, int maxLen) {
-        int len = minLen + random.nextInt(maxLen - minLen + 1);
-        StringBuilder sb = new StringBuilder(len);
+        ThreadLocalRandom rnd = ThreadLocalRandom.current();
+        int len = minLen + rnd.nextInt(maxLen - minLen + 1);
+        byte[] bytes = new byte[len];
+        rnd.nextBytes(bytes);
         for (int i = 0; i < len; i++) {
-            sb.append((char) ('a' + random.nextInt(26)));
+            bytes[i] = (byte) ('a' + (bytes[i] & 0x7F) % 26);
         }
-        return sb.toString();
+        return new String(bytes);
     }
 
     public static String randomNumericString(int len) {
-        StringBuilder sb = new StringBuilder(len);
+        ThreadLocalRandom rnd = ThreadLocalRandom.current();
+        byte[] bytes = new byte[len];
+        rnd.nextBytes(bytes);
         for (int i = 0; i < len; i++) {
-            sb.append((char) ('0' + random.nextInt(10)));
+            bytes[i] = (byte) ('0' + (bytes[i] & 0x7F) % 10);
         }
-        return sb.toString();
+        return new String(bytes);
     }
 
     public static double randomDouble(double min, double max) {
-        return min + (max - min) * random.nextDouble();
+        return min + (max - min) * ThreadLocalRandom.current().nextDouble();
     }
 
     public static int randomInt(int min, int max) {
-        return min + random.nextInt(max - min + 1);
+        return min + ThreadLocalRandom.current().nextInt(max - min + 1);
     }
 
     public static String randomZip() {
