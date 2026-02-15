@@ -79,6 +79,20 @@ class AbstractTransactionTest {
         @Override public boolean requiresRowIdForLimitForUpdate() { return false; }
     }
 
+    // Mock adapter for SQLite (no FOR UPDATE support)
+    static class MockSQLiteAdapter implements DatabaseAdapter {
+        @Override public void initialize() {}
+        @Override public Connection getConnection() { return null; }
+        @Override public void close() {}
+        @Override public void createSchema() {}
+        @Override public void dropSchema() {}
+        @Override public Map<String, Object> collectMetrics() { return new HashMap<>(); }
+        @Override public String getDatabaseType() { return "SQLite"; }
+        @Override public boolean supportsLimitSyntax() { return true; }
+        @Override public boolean requiresRowIdForLimitForUpdate() { return false; }
+        @Override public boolean supportsForUpdate() { return false; }
+    }
+
     // Testable transaction class to expose protected methods
     static class TestableTransaction extends AbstractTransaction {
         public TestableTransaction(DatabaseAdapter adapter) {
@@ -274,6 +288,32 @@ class AbstractTransactionTest {
         String result = tx.testBuildSelectForUpdateQuery(baseQuery);
 
         assertTrue(result.contains("WITH (UPDLOCK, ROWLOCK)"));
+        assertFalse(result.contains("FOR UPDATE"));
+    }
+
+    // ==================== SQLite Tests ====================
+
+    @Test
+    @DisplayName("SQLite: Should use LIMIT 1 without FOR UPDATE for SELECT first row for update")
+    void testSQLiteSelectFirstRowForUpdate() {
+        TestableTransaction tx = new TestableTransaction(new MockSQLiteAdapter());
+        String baseQuery = "SELECT no_o_id FROM new_order WHERE no_w_id = ? AND no_d_id = ? ORDER BY no_o_id";
+
+        String result = tx.testBuildSelectFirstRowForUpdateQuery(baseQuery);
+
+        assertEquals(baseQuery + " LIMIT 1", result);
+        assertFalse(result.contains("FOR UPDATE"));
+    }
+
+    @Test
+    @DisplayName("SQLite: Should not append FOR UPDATE for SELECT for update")
+    void testSQLiteSelectForUpdate() {
+        TestableTransaction tx = new TestableTransaction(new MockSQLiteAdapter());
+        String baseQuery = "SELECT d_next_o_id FROM district WHERE d_w_id = ? AND d_id = ?";
+
+        String result = tx.testBuildSelectForUpdateQuery(baseQuery);
+
+        assertEquals(baseQuery, result);
         assertFalse(result.contains("FOR UPDATE"));
     }
 

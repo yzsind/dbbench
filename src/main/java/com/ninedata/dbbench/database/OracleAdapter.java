@@ -87,46 +87,37 @@ public class OracleAdapter extends AbstractDatabaseAdapter {
     @Override
     public Map<String, Object> collectHostMetrics() throws SQLException {
         Map<String, Object> metrics = new HashMap<>();
+
         try (Connection conn = getConnection(); Statement stmt = conn.createStatement()) {
             // Oracle V$OSSTAT provides OS-level metrics
-            try {
-                ResultSet rs = stmt.executeQuery("""
-                    SELECT STAT_NAME, VALUE FROM V$OSSTAT
-                    WHERE STAT_NAME IN (
-                        'NUM_CPUS', 'IDLE_TIME', 'BUSY_TIME', 'USER_TIME', 'SYS_TIME',
-                        'PHYSICAL_MEMORY_BYTES', 'FREE_MEMORY_BYTES',
-                        'OS_CPU_WAIT_TIME', 'RSRC_MGR_CPU_WAIT_TIME'
-                    )
-                """);
-                long busyTime = 0, idleTime = 0;
-                while (rs.next()) {
-                    String name = rs.getString("STAT_NAME");
-                    long value = rs.getLong("VALUE");
-                    switch (name) {
-                        case "NUM_CPUS" -> metrics.put("cpuCores", value);
-                        case "BUSY_TIME" -> busyTime = value;
-                        case "IDLE_TIME" -> idleTime = value;
-                        case "PHYSICAL_MEMORY_BYTES" -> metrics.put("memoryTotal", value / (1024 * 1024));
-                        case "FREE_MEMORY_BYTES" -> metrics.put("memoryFree", value / (1024 * 1024));
-                    }
-                }
-                rs.close();
+            String sql = """
+            SELECT 
+                (SELECT VALUE FROM V$SYSMETRIC WHERE METRIC_NAME = 'Host CPU Utilization (%)') AS CPU_USAGE,
+                (SELECT VALUE FROM V$OSSTAT WHERE STAT_NAME = 'NUM_CPUS') AS CPU_CORES,
+                (SELECT VALUE FROM V$OSSTAT WHERE STAT_NAME = 'PHYSICAL_MEMORY_BYTES') AS MEM_TOTAL,
+                (SELECT VALUE FROM V$OSSTAT WHERE STAT_NAME = 'FREE_MEMORY_BYTES') AS MEM_FREE
+            FROM DUAL
+            """;
+            try (ResultSet rs = stmt.executeQuery(sql)) {
 
-                // Calculate CPU usage
-                if (busyTime + idleTime > 0) {
-                    double cpuUsage = (busyTime * 100.0) / (busyTime + idleTime);
-                    metrics.put("cpuUsage", Math.round(cpuUsage * 100.0) / 100.0);
-                }
+                    if (rs.next()) {
+                        double cpuUsage = rs.getDouble("CPU_USAGE");
+                        long cpuCores = rs.getLong("CPU_CORES");
+                        long memTotal = rs.getLong("MEM_TOTAL");
+                        long memFree = rs.getLong("MEM_FREE");
 
-                // Calculate memory usage
-                if (metrics.containsKey("memoryTotal") && metrics.containsKey("memoryFree")) {
-                    long total = (Long) metrics.get("memoryTotal");
-                    long free = (Long) metrics.get("memoryFree");
-                    metrics.put("memoryUsed", total - free);
-                    if (total > 0) {
-                        metrics.put("memoryUsage", Math.round(((total - free) * 100.0 / total) * 100.0) / 100.0);
+                        // 填充指标数据
+                        metrics.put("cpuUsage", Math.round(cpuUsage * 100.0) / 100.0); // 保留两位小数
+                        metrics.put("cpuCores", cpuCores);
+                        metrics.put("memoryTotal", memTotal / (1024 * 1024)); // B -> MB
+                        metrics.put("memoryFree", memFree / (1024 * 1024));   // B -> MB
+
+                        // 计算内存使用率 (可选)
+                        if (memTotal > 0) {
+                            double memUsage = ((double)(memTotal - memFree) / memTotal) * 100;
+                            metrics.put("memoryUsagePercent", Math.round(memUsage * 100.0) / 100.0);
+                        }
                     }
-                }
             } catch (SQLException e) {
                 log.debug("Could not get OS stats from V$OSSTAT: {}", e.getMessage());
             }

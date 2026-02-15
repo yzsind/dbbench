@@ -333,7 +333,7 @@ mvn spring-boot:run
 
 ## License
 
-MIT License
+Apache License 2.0
 
 ## Contributing
 

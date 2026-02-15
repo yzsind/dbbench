@@ -6,6 +6,7 @@ import com.ninedata.dbbench.database.DatabaseAdapter;
 import com.ninedata.dbbench.database.DatabaseFactory;
 import com.ninedata.dbbench.metrics.MetricsRegistry;
 import com.ninedata.dbbench.metrics.OSMetricsCollector;
+import com.ninedata.dbbench.metrics.SshMetricsCollector;
 import com.ninedata.dbbench.tpcc.TPCCUtil;
 import com.ninedata.dbbench.tpcc.loader.TPCCLoader;
 import com.ninedata.dbbench.tpcc.transaction.*;
@@ -30,6 +31,7 @@ public class BenchmarkEngine {
     private final OSMetricsCollector osMetricsCollector;
 
     private DatabaseAdapter adapter;
+    private SshMetricsCollector sshCollector;
     private ExecutorService executorService;
     private ScheduledExecutorService metricsScheduler;
     private final AtomicBoolean running = new AtomicBoolean(false);
@@ -145,6 +147,26 @@ public class BenchmarkEngine {
             status = "IDLE";
         }
 
+        // Update SSH config
+        if (newConfig.containsKey("ssh")) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> ssh = (Map<String, Object>) newConfig.get("ssh");
+            DatabaseConfig.SshConfig sshCfg = dbConfig.getSsh();
+            if (ssh.containsKey("enabled")) sshCfg.setEnabled(Boolean.TRUE.equals(ssh.get("enabled")));
+            if (ssh.containsKey("host")) sshCfg.setHost((String) ssh.get("host"));
+            if (ssh.containsKey("port")) sshCfg.setPort(((Number) ssh.get("port")).intValue());
+            if (ssh.containsKey("username")) sshCfg.setUsername((String) ssh.get("username"));
+            if (ssh.containsKey("password")) sshCfg.setPassword((String) ssh.get("password"));
+            if (ssh.containsKey("privateKey")) sshCfg.setPrivateKey((String) ssh.get("privateKey"));
+            if (ssh.containsKey("passphrase")) sshCfg.setPassphrase((String) ssh.get("passphrase"));
+        }
+
+        // Disconnect SSH if config changed (will reconnect on next initialize)
+        if (sshCollector != null) {
+            sshCollector.disconnect();
+            sshCollector = null;
+        }
+
         addLog("INFO", "Configuration updated");
     }
 
@@ -167,6 +189,33 @@ public class BenchmarkEngine {
             adapter = null;
             status = "ERROR";
             throw new SQLException("Failed to initialize database connection: " + e.getMessage(), e);
+        }
+
+        // Initialize SSH metrics collector if enabled
+        connectSshCollector();
+    }
+
+    private void connectSshCollector() {
+        // Disconnect existing
+        if (sshCollector != null) {
+            sshCollector.disconnect();
+            sshCollector = null;
+        }
+
+        if (dbConfig.getSsh().isEnabled()) {
+            String host = dbConfig.getEffectiveSshHost();
+            if (host.isBlank()) {
+                addLog("WARN", "SSH enabled but no host could be determined");
+                return;
+            }
+            try {
+                sshCollector = new SshMetricsCollector(dbConfig.getSsh(), host);
+                sshCollector.connect();
+                addLog("INFO", "SSH metrics collector connected to " + host);
+            } catch (Exception e) {
+                addLog("WARN", "SSH metrics connection failed: " + e.getMessage() + " (will retry on next collection)");
+                // Keep the collector so it can retry
+            }
         }
     }
 
@@ -482,7 +531,18 @@ public class BenchmarkEngine {
         try {
             Map<String, Object> dbMetrics = adapter.collectMetrics();
             Map<String, Object> osMetrics = osMetricsCollector.collect();
-            Map<String, Object> hostMetrics = adapter.collectHostMetrics();
+
+            // Use SSH metrics for dbHost if available, otherwise fall back to SQL-based
+            Map<String, Object> hostMetrics;
+            if (sshCollector != null && sshCollector.isConnected()) {
+                hostMetrics = sshCollector.collect();
+            } else if (sshCollector != null) {
+                // SSH configured but disconnected - try reconnect, use SQL fallback for now
+                hostMetrics = adapter.collectHostMetrics();
+            } else {
+                hostMetrics = adapter.collectHostMetrics();
+            }
+
             metricsRegistry.takeSnapshot(dbMetrics, osMetrics);
 
             if (metricsCallback != null) {
@@ -540,6 +600,10 @@ public class BenchmarkEngine {
 
     public void shutdown() {
         stop();
+        if (sshCollector != null) {
+            sshCollector.disconnect();
+            sshCollector = null;
+        }
         if (adapter != null) {
             adapter.close();
         }
@@ -590,6 +654,17 @@ public class BenchmarkEngine {
         mix.put("delivery", benchConfig.getMix().getDelivery());
         mix.put("stockLevel", benchConfig.getMix().getStockLevel());
         config.put("transactionMix", mix);
+
+        // SSH config (mask sensitive fields)
+        Map<String, Object> ssh = new LinkedHashMap<>();
+        ssh.put("enabled", dbConfig.getSsh().isEnabled());
+        ssh.put("host", dbConfig.getSsh().getHost());
+        ssh.put("port", dbConfig.getSsh().getPort());
+        ssh.put("username", dbConfig.getSsh().getUsername());
+        ssh.put("hasPassword", dbConfig.getSsh().getPassword() != null && !dbConfig.getSsh().getPassword().isBlank());
+        ssh.put("hasPrivateKey", dbConfig.getSsh().getPrivateKey() != null && !dbConfig.getSsh().getPrivateKey().isBlank());
+        ssh.put("connected", sshCollector != null && sshCollector.isConnected());
+        config.put("ssh", ssh);
 
         return config;
     }

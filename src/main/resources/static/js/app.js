@@ -9,7 +9,9 @@ let tpsChart = null;
 let cpuChart = null;
 let networkChart = null;
 let dbCpuChart = null;
+let dbMemChart = null;
 let dbDiskChart = null;
+let dbNetChart = null;
 let dbConnChart = null;
 const maxDataPoints = 60;
 let currentConfig = null;
@@ -272,6 +274,35 @@ function initCharts() {
         }
     });
 
+    // Database Memory Chart
+    const dbMemCtx = document.getElementById('dbMemChart').getContext('2d');
+    dbMemChart = new Chart(dbMemCtx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [{
+                label: 'Memory %',
+                data: [],
+                borderColor: '#2ecc71',
+                backgroundColor: 'rgba(46, 204, 113, 0.1)',
+                fill: true,
+                tension: 0.4,
+                pointRadius: 2,
+                pointHoverRadius: 4
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: { duration: 0 },
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { grid: { color: '#333' }, ticks: { color: '#888', maxTicksLimit: 10 } },
+                y: { grid: { color: '#333' }, ticks: { color: '#888' }, beginAtZero: true, max: 100 }
+            }
+        }
+    });
+
     // Database Disk I/O Chart
     const dbDiskCtx = document.getElementById('dbDiskChart').getContext('2d');
     dbDiskChart = new Chart(dbDiskCtx, {
@@ -294,6 +325,60 @@ function initCharts() {
                     data: [],
                     borderColor: '#e74c3c',
                     backgroundColor: 'rgba(231, 76, 60, 0.1)',
+                    fill: false,
+                    tension: 0.4,
+                    pointRadius: 2,
+                    pointHoverRadius: 4
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: { duration: 0 },
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'top',
+                    labels: { color: '#888', boxWidth: 12, padding: 10 }
+                }
+            },
+            scales: {
+                x: { grid: { color: '#333' }, ticks: { color: '#888', maxTicksLimit: 10 } },
+                y: {
+                    grid: { color: '#333' },
+                    ticks: {
+                        color: '#888',
+                        callback: function(value) { return formatBytesShort(value) + '/s'; }
+                    },
+                    beginAtZero: true
+                }
+            }
+        }
+    });
+
+    // Database Network I/O Chart
+    const dbNetCtx = document.getElementById('dbNetChart').getContext('2d');
+    dbNetChart = new Chart(dbNetCtx, {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [
+                {
+                    label: 'Recv',
+                    data: [],
+                    borderColor: '#1abc9c',
+                    backgroundColor: 'rgba(26, 188, 156, 0.1)',
+                    fill: false,
+                    tension: 0.4,
+                    pointRadius: 2,
+                    pointHoverRadius: 4
+                },
+                {
+                    label: 'Sent',
+                    data: [],
+                    borderColor: '#e67e22',
+                    backgroundColor: 'rgba(230, 126, 34, 0.1)',
                     fill: false,
                     tension: 0.4,
                     pointRadius: 2,
@@ -570,19 +655,39 @@ function updateMetrics(data) {
             dbCpuChart.update();
         }
 
-        // Disk I/O Chart - Calculate rate (bytes per second)
-        if (host.diskReadBytes !== undefined && host.diskWriteBytes !== undefined) {
-            const currentTime = Date.now();
-            const timeDiff = (currentTime - lastDiskTime) / 1000; // seconds
+        // Memory Chart (SSH-sourced)
+        if (host.memoryUsage !== undefined) {
+            dbMemChart.data.labels.push(now);
+            dbMemChart.data.datasets[0].data.push(host.memoryUsage);
+            if (dbMemChart.data.labels.length > maxDataPoints) {
+                dbMemChart.data.labels.shift();
+                dbMemChart.data.datasets[0].data.shift();
+            }
+            dbMemChart.update();
+        }
 
+        // Disk I/O Chart - SSH provides pre-computed rates, SQL provides cumulative bytes
+        if (host.diskReadBytesPerSec !== undefined) {
+            // SSH-sourced: already rate values
+            dbDiskChart.data.labels.push(now);
+            dbDiskChart.data.datasets[0].data.push(host.diskReadBytesPerSec);
+            dbDiskChart.data.datasets[1].data.push(host.diskWriteBytesPerSec || 0);
+            if (dbDiskChart.data.labels.length > maxDataPoints) {
+                dbDiskChart.data.labels.shift();
+                dbDiskChart.data.datasets[0].data.shift();
+                dbDiskChart.data.datasets[1].data.shift();
+            }
+            dbDiskChart.update();
+        } else if (host.diskReadBytes !== undefined && host.diskWriteBytes !== undefined) {
+            // SQL-sourced: calculate rate client-side
+            const currentTime = Date.now();
+            const timeDiff = (currentTime - lastDiskTime) / 1000;
             if (lastDiskReadBytes > 0 && timeDiff > 0) {
                 const readRate = Math.max(0, (host.diskReadBytes - lastDiskReadBytes) / timeDiff);
                 const writeRate = Math.max(0, (host.diskWriteBytes - lastDiskWriteBytes) / timeDiff);
-
                 dbDiskChart.data.labels.push(now);
                 dbDiskChart.data.datasets[0].data.push(readRate);
                 dbDiskChart.data.datasets[1].data.push(writeRate);
-
                 if (dbDiskChart.data.labels.length > maxDataPoints) {
                     dbDiskChart.data.labels.shift();
                     dbDiskChart.data.datasets[0].data.shift();
@@ -590,10 +695,22 @@ function updateMetrics(data) {
                 }
                 dbDiskChart.update();
             }
-
             lastDiskReadBytes = host.diskReadBytes;
             lastDiskWriteBytes = host.diskWriteBytes;
             lastDiskTime = currentTime;
+        }
+
+        // Network I/O Chart (SSH-sourced)
+        if (host.networkRecvBytesPerSec !== undefined) {
+            dbNetChart.data.labels.push(now);
+            dbNetChart.data.datasets[0].data.push(host.networkRecvBytesPerSec);
+            dbNetChart.data.datasets[1].data.push(host.networkSentBytesPerSec || 0);
+            if (dbNetChart.data.labels.length > maxDataPoints) {
+                dbNetChart.data.labels.shift();
+                dbNetChart.data.datasets[0].data.shift();
+                dbNetChart.data.datasets[1].data.shift();
+            }
+            dbNetChart.update();
         }
     }
 
@@ -671,6 +788,20 @@ function displayConfig(cfg) {
         document.getElementById('cfgMixDelivery').textContent = cfg.transactionMix.delivery + '%';
         document.getElementById('cfgMixStockLevel').textContent = cfg.transactionMix.stockLevel + '%';
     }
+
+    // SSH status
+    const sshStatusEl = document.getElementById('cfgSshStatus');
+    if (sshStatusEl && cfg.ssh) {
+        if (cfg.ssh.enabled) {
+            const host = cfg.ssh.host || '(auto-detect)';
+            const connStatus = cfg.ssh.connected ? 'Connected' : 'Disconnected';
+            sshStatusEl.textContent = `SSH: ${connStatus} (${host}:${cfg.ssh.port})`;
+            sshStatusEl.style.color = cfg.ssh.connected ? '#00ff88' : '#ff4757';
+        } else {
+            sshStatusEl.textContent = 'SSH: Disabled';
+            sshStatusEl.style.color = '#888';
+        }
+    }
 }
 
 function openConfigModal() {
@@ -702,6 +833,15 @@ function openConfigModal() {
     document.getElementById('cfgFormMixOrderStatus').value = cfg.transactionMix?.orderStatus || 4;
     document.getElementById('cfgFormMixDelivery').value = cfg.transactionMix?.delivery || 4;
     document.getElementById('cfgFormMixStockLevel').value = cfg.transactionMix?.stockLevel || 4;
+
+    // SSH config
+    document.getElementById('cfgFormSshEnabled').checked = cfg.ssh?.enabled || false;
+    document.getElementById('cfgFormSshHost').value = cfg.ssh?.host || '';
+    document.getElementById('cfgFormSshPort').value = cfg.ssh?.port || 22;
+    document.getElementById('cfgFormSshUser').value = cfg.ssh?.username || 'root';
+    document.getElementById('cfgFormSshPass').value = '';
+    document.getElementById('cfgFormSshKey').value = '';
+    toggleSshFields();
 
     // Clear connection test result
     document.getElementById('connectionTestResult').innerHTML = '';
@@ -737,6 +877,23 @@ async function saveConfig() {
     const password = document.getElementById('cfgFormDbPass').value;
     if (password) {
         newConfig.database.password = password;
+    }
+
+    // SSH config
+    const sshEnabled = document.getElementById('cfgFormSshEnabled').checked;
+    newConfig.ssh = {
+        enabled: sshEnabled,
+        host: document.getElementById('cfgFormSshHost').value,
+        port: parseInt(document.getElementById('cfgFormSshPort').value) || 22,
+        username: document.getElementById('cfgFormSshUser').value
+    };
+    const sshPass = document.getElementById('cfgFormSshPass').value;
+    if (sshPass) {
+        newConfig.ssh.password = sshPass;
+    }
+    const sshKey = document.getElementById('cfgFormSshKey').value;
+    if (sshKey) {
+        newConfig.ssh.privateKey = sshKey;
     }
 
     // Validate transaction mix
@@ -970,10 +1127,19 @@ async function startBenchmark() {
     dbCpuChart.data.datasets[0].data = [];
     dbCpuChart.update();
 
+    dbMemChart.data.labels = [];
+    dbMemChart.data.datasets[0].data = [];
+    dbMemChart.update();
+
     dbDiskChart.data.labels = [];
     dbDiskChart.data.datasets[0].data = [];
     dbDiskChart.data.datasets[1].data = [];
     dbDiskChart.update();
+
+    dbNetChart.data.labels = [];
+    dbNetChart.data.datasets[0].data = [];
+    dbNetChart.data.datasets[1].data = [];
+    dbNetChart.update();
 
     dbConnChart.data.labels = [];
     dbConnChart.data.datasets[0].data = [];
@@ -998,6 +1164,13 @@ async function stopBenchmark() {
     if (result.success) {
         showToast('info', 'Benchmark Stopped', 'Benchmark has been stopped');
     }
+}
+
+// ==================== SSH Config Toggle ====================
+
+function toggleSshFields() {
+    const enabled = document.getElementById('cfgFormSshEnabled').checked;
+    document.getElementById('sshFields').style.display = enabled ? 'block' : 'none';
 }
 
 // ==================== Modal ====================
@@ -1065,7 +1238,12 @@ const jdbcUrlTemplates = {
     db2: 'jdbc:db2://127.0.0.1:50000/tpcc',
     dameng: 'jdbc:dm://127.0.0.1:5236/tpcc',
     oceanbase: 'jdbc:oceanbase://127.0.0.1:2881/tpcc',
-    tidb: 'jdbc:mysql://127.0.0.1:4000/tpcc?useSSL=false&rewriteBatchedStatements=true'
+    tidb: 'jdbc:mysql://127.0.0.1:4000/tpcc?useSSL=false&rewriteBatchedStatements=true',
+    sqlite: 'jdbc:sqlite:./tpcc.db',
+    yashandb: 'jdbc:yasdb://127.0.0.1:1688/tpcc',
+    gbase8s: 'jdbc:gbasedbt-sqli://127.0.0.1:9088/tpcc:GBASEDBTSERVER=gbase01',
+    sybase: 'jdbc:sybase:Tds:127.0.0.1:5000/tpcc',
+    hana: 'jdbc:sap://127.0.0.1:30015/?databaseName=tpcc'
 };
 
 function onDbTypeChange() {

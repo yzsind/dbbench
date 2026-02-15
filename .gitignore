@@ -32,6 +32,11 @@ Thumbs.db
 *.seed
 *.pid.lock
 
+# SQLite database files
+*.db
+*.db-shm
+*.db-wal
+
 # Test output
 test-output/
 surefire-reports/

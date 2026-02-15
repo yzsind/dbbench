@@ -14,6 +14,11 @@ public class DatabaseFactory {
             case "dameng", "dm" -> new DamengAdapter(config);
             case "oceanbase" -> new OceanBaseAdapter(config);
             case "tidb" -> new TiDBAdapter(config);
+            case "sqlite" -> new SQLiteAdapter(config);
+            case "yashandb", "yashan" -> new YashanDBAdapter(config);
+            case "gbase8s", "gbase" -> new GBase8sAdapter(config);
+            case "sybase", "ase" -> new SybaseAdapter(config);
+            case "hana", "saphana" -> new HANAAdapter(config);
             default -> throw new IllegalArgumentException("Unsupported database type: " + config.getType());
         };
     }

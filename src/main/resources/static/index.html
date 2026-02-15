@@ -59,6 +59,9 @@
                     <span class="config-label">JDBC URL:</span>
                     <span class="config-value" id="cfgJdbcUrl" style="font-size: 12px; word-break: break-all;">-</span>
                 </div>
+                <div style="margin-top: 5px;">
+                    <span class="config-value" id="cfgSshStatus" style="font-size: 12px; color: #888;">SSH: Disabled</span>
+                </div>
                 <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid #333;">
                     <div class="config-label" style="margin-bottom: 8px;">Transaction Mix</div>
                     <div style="display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px;">
@@ -151,7 +154,7 @@
             </div>
         </div>
 
-        <!-- Database Host Metrics Charts - CPU, Disk I/O, Connections in one row -->
+        <!-- Database Host Metrics Charts - Row 1: CPU, Memory, Disk I/O -->
         <div class="grid grid-3">
             <div class="card">
                 <h3>Database CPU Usage</h3>
@@ -160,9 +163,25 @@
                 </div>
             </div>
             <div class="card">
+                <h3>Database Memory Usage</h3>
+                <div class="chart-container">
+                    <canvas id="dbMemChart"></canvas>
+                </div>
+            </div>
+            <div class="card">
                 <h3>Database Disk I/O</h3>
                 <div class="chart-container">
                     <canvas id="dbDiskChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Database Host Metrics Charts - Row 2: Network, Connections -->
+        <div class="grid grid-2">
+            <div class="card">
+                <h3>Database Network I/O</h3>
+                <div class="chart-container">
+                    <canvas id="dbNetChart"></canvas>
                 </div>
             </div>
             <div class="card">
@@ -257,6 +276,11 @@
                                 <option value="db2">DB2</option>
                                 <option value="dameng">Dameng</option>
                                 <option value="oceanbase">OceanBase</option>
+                                <option value="sqlite">SQLite</option>
+                                <option value="yashandb">YashanDB</option>
+                                <option value="gbase8s">GBase 8s</option>
+                                <option value="sybase">Sybase</option>
+                                <option value="hana">SAP HANA</option>
                             </select>
                         </div>
                         <div class="form-group">
@@ -284,6 +308,51 @@
                             Test Connection
                         </button>
                         <span id="connectionTestResult" class="connection-test-result"></span>
+                    </div>
+                </div>
+
+                <!-- SSH Host Metrics (Optional) -->
+                <div class="form-section">
+                    <div class="form-section-title">SSH Host Metrics (Optional)</div>
+                    <div class="form-group">
+                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                            <input type="checkbox" id="cfgFormSshEnabled" style="width: auto;" onchange="toggleSshFields()">
+                            Enable SSH host metrics collection
+                        </label>
+                        <small style="color: #888; display: block; margin-top: 4px;">Collects real CPU, memory, disk I/O, and network metrics from the database server via SSH</small>
+                    </div>
+                    <div id="sshFields" style="display: none;">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="cfgFormSshHost">SSH Host (blank = auto-detect from JDBC URL)</label>
+                                <input type="text" id="cfgFormSshHost" placeholder="Auto-detect from JDBC URL">
+                            </div>
+                            <div class="form-group">
+                                <label for="cfgFormSshPort">SSH Port</label>
+                                <input type="number" id="cfgFormSshPort" placeholder="22" value="22">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="cfgFormSshUser">SSH Username</label>
+                                <input type="text" id="cfgFormSshUser" placeholder="root">
+                            </div>
+                            <div class="form-group">
+                                <label for="cfgFormSshPass">SSH Password</label>
+                                <input type="password" id="cfgFormSshPass" placeholder="Leave empty to keep current">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="cfgFormSshKey">Private Key Path (on server)</label>
+                            <input type="text" id="cfgFormSshKey" placeholder="/root/.ssh/id_rsa">
+                        </div>
+                        <!-- SSH Connection Test -->
+                        <div class="form-group">
+                            <button type="button" class="btn btn-secondary" onclick="testSshConnection()" id="btnTestSsh">
+                                Test SSH
+                            </button>
+                            <span id="sshTestResult" class="connection-test-result"></span>
+                        </div>
                     </div>
                 </div>
 
@@ -383,6 +452,6 @@
     <!-- Toast Notifications -->
     <div id="toastContainer" class="toast-container"></div>
 
-    <script src="js/app.js?v=2"></script>
+    <script src="js/app.js?v=3"></script>
 </body>
 </html>

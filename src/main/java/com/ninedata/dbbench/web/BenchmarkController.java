@@ -4,6 +4,7 @@ import com.ninedata.dbbench.config.DatabaseConfig;
 import com.ninedata.dbbench.database.DatabaseAdapter;
 import com.ninedata.dbbench.database.DatabaseFactory;
 import com.ninedata.dbbench.engine.BenchmarkEngine;
+import com.ninedata.dbbench.metrics.SshMetricsCollector;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;

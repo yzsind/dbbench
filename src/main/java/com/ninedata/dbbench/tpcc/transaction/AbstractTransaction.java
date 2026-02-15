@@ -2,10 +2,12 @@ package com.ninedata.dbbench.tpcc.transaction;
 
 import com.ninedata.dbbench.database.DatabaseAdapter;
 import lombok.Getter;
+import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 
 import java.sql.Connection;
 import java.sql.SQLException;
+import java.util.function.BiConsumer;
 
 @Slf4j
 @Getter
@@ -15,6 +17,10 @@ public abstract class AbstractTransaction {
     protected final int districtId;
     protected final boolean useLimitSyntax;
     protected final boolean useRowIdForLimitForUpdate;
+    protected final boolean supportsForUpdate;
+
+    @Setter
+    private static BiConsumer<String, String> errorCallback;
 
     public AbstractTransaction(DatabaseAdapter adapter, int warehouseId, int districtId) {
         this.adapter = adapter;
@@ -22,6 +28,7 @@ public abstract class AbstractTransaction {
         this.districtId = districtId;
         this.useLimitSyntax = adapter.supportsLimitSyntax();
         this.useRowIdForLimitForUpdate = adapter.requiresRowIdForLimitForUpdate();
+        this.supportsForUpdate = adapter.supportsForUpdate();
     }
 
     public abstract String getName();
@@ -36,7 +43,11 @@ public abstract class AbstractTransaction {
             }
             return success;
         } catch (SQLException e) {
-            log.error(e.getMessage());
+            String errorMsg = String.format("[%s] %s", getName(), e.getMessage());
+            log.error(errorMsg);
+            if (errorCallback != null) {
+                errorCallback.accept("ERROR", errorMsg);
+            }
             return false;
         }
     }
@@ -74,6 +85,10 @@ public abstract class AbstractTransaction {
      * For MySQL/PostgreSQL/etc: uses LIMIT 1 FOR UPDATE
      */
     protected String buildSelectFirstRowForUpdateQuery(String baseQuery) {
+        if (!supportsForUpdate) {
+            // SQLite: no FOR UPDATE support, rely on file-level locking
+            return buildSelectFirstRowQuery(baseQuery);
+        }
         String dbType = adapter.getDatabaseType().toLowerCase();
         if (dbType.contains("sql server")) {
             // SQL Server: uses TOP 1 and WITH (UPDLOCK, ROWLOCK) instead of FOR UPDATE
@@ -148,6 +163,10 @@ public abstract class AbstractTransaction {
      * For other databases: appends FOR UPDATE
      */
     protected String buildSelectForUpdateQuery(String baseQuery) {
+        if (!supportsForUpdate) {
+            // SQLite: no FOR UPDATE support, rely on file-level locking
+            return baseQuery;
+        }
         String dbType = adapter.getDatabaseType().toLowerCase();
         if (dbType.contains("sql server")) {
             // SQL Server: uses WITH (UPDLOCK, ROWLOCK) instead of FOR UPDATE

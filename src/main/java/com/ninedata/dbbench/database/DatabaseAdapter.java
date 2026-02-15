@@ -31,6 +31,14 @@ public interface DatabaseAdapter {
     }
 
     /**
+     * Check if database supports SELECT ... FOR UPDATE syntax.
+     * SQLite uses file-level locking and does not support FOR UPDATE.
+     */
+    default boolean supportsForUpdate() {
+        return true;
+    }
+
+    /**
      * Collect database host OS metrics (CPU, Memory, Disk I/O, Network I/O)
      * This is collected from the database server side if supported
      */
